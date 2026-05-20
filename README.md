@@ -349,7 +349,11 @@ git remote add upstream https://github.com/raphaelschwinger/torchrl-hydra-templa
 git fetch upstream
 ```
 
-Periodic sync:
+How you sync depends on how you created your repo.
+
+#### Fork or clone of the template
+
+Histories are already linked — merge or rebase works out of the box:
 
 ```shell
 git checkout main
@@ -358,10 +362,50 @@ git merge upstream/main          # or: git rebase upstream/main
 pytest tests/test_smoke.py -v
 ```
 
+#### Created via [Use this template](https://github.com/raphaelschwinger/torchrl-hydra-template/generate)
+
+GitHub starts a fresh repository with a new initial commit. The files match the
+template, but git sees **no shared history**, so `git merge upstream/main` fails
+with *refusing to merge unrelated histories*.
+
+**Recommended — one-time history reconnect.** Rebase your project-specific
+commits onto `upstream/main` so regular merges work from then on:
+
+```shell
+git remote add upstream https://github.com/raphaelschwinger/torchrl-hydra-template.git
+git fetch upstream
+
+# <initial-commit> = your repo's first commit (see git log --oneline --reverse)
+git rebase --onto upstream/main <initial-commit> main
+git push --force-with-lease origin main
+```
+
+Example: if `git log --oneline --reverse | head -1` shows `3a43db2 Initial
+commit`, run `git rebase --onto upstream/main 3a43db2 main`.
+
+After reconnecting, sync the same way as a fork:
+
+```shell
+git checkout main
+git merge upstream/main
+pytest tests/test_smoke.py -v
+```
+
+This rewrites history on `main`. Only run it once, early in the project, or
+coordinate with collaborators before force-pushing.
+
+**Without reconnecting** — pull in upstream changes selectively:
+
+```shell
+git cherry-pick <commit-sha>            # one upstream commit at a time
+
+# — or — copy changed files manually
+git diff upstream/main -- src/algorithms/dqn.py
+pytest tests/test_smoke.py -v
+```
+
 Once you diverge, conflicts are likely — resolve them only in shared template
-files. Merge is the simplest default; rebase keeps a linear history if you
-prefer that. If you never added `upstream`, you can still cherry-pick individual
-commits by hash after fetching.
+files.
 
 ### Feeding improvements back to the template
 
