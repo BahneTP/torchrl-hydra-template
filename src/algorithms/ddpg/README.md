@@ -70,4 +70,4 @@ Reference implementation: [torchrl SOTA DDPG](https://github.com/pytorch/rl/blob
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| TBD — see W&B table | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` | 42 | 1,000,000 | — | torchrl SOTA reference |
+| [ddpg_halfcheetah_2026-05-11_15-07-06](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/mg1b7byc) | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` | 42 | 1,000,000 | 11,536.8 | best train/episode_reward |

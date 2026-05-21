@@ -66,4 +66,4 @@ Reference implementation: [torchrl SOTA A2C MuJoCo](https://github.com/pytorch/r
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| TBD — see W&B table | HalfCheetah-v4 | `experiment=a2c/halfcheetah` | 42 | 1,000,000 | — | torchrl SOTA reference |
+| — | — | — | — | — | — | No finished runs tagged ``template`` yet — see [W&B table](https://wandb.ai/LatentLab/torchrl-hydra-template/table) |

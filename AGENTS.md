@@ -343,7 +343,9 @@ Example: `$Q(s, a; \theta)$`, `$\theta_{\text{target}}$`.
 5. Add `src/algorithms/my_algo/README.md` with theory, pseudocode, implementation
    mapping, and an experimental-results table (link to
    [W&B project table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)).
-   Use `$...$` for inline math (see [Documentation](#documentation)).
+   Tag benchmark W&B runs with `template`; refresh the table via
+   `python scripts/update_algo_results.py`. Use `$...$` for inline math (see
+   [Documentation](#documentation)).
 6. **Update `README.md` and `AGENTS.md`.**
 7. Add a smoke test in `tests/test_smoke.py`.
 
@@ -364,5 +366,6 @@ python src/train.py experiment=dqn/cartpole 'logger=[wandb]'  # experiments defa
 python src/train.py experiment=dqn/pong            # Atari Pong (40M frames, GPU)
 python src/train.py experiment=ddpg/halfcheetah    # DDPG continuous control (1M frames)
 python src/train.py experiment=a2c/halfcheetah     # A2C on-policy continuous control (1M frames)
+python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
 ```

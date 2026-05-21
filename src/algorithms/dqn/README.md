@@ -71,9 +71,7 @@ Reference implementations: [torchrl SOTA DQN CartPole](https://github.com/pytorc
 
 **Live W&B table (canonical):** [LatentLab/torchrl-hydra-template — Table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)
 
-Benchmark runs for this algorithm (refresh after new training runs; populate via `wandb.Api()` when authenticated):
-
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| TBD — see W&B table | CartPole-v1 | `experiment=dqn/cartpole` | 42 | 500,100 | — | torchrl SOTA reference |
-| TBD — see W&B table | ALE/Pong-v5 | `experiment=dqn/pong` | 42 | 40,000,100 | — | Nature CNN, 16 parallel envs |
+| [dqn_atari_pong_train_2026-05-07_20-44-57](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/mcy6j9e7) | ALE/Pong-v5 | `experiment=dqn/pong` | 42 | 40,000,100 | 21.0 | best train/episode_reward |
+| [dqn_cartpole_2026-05-12_08-17-18](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/33w09b2o) | CartPole-v1 | `experiment=dqn/cartpole` | 42 | 500,100 | 500.0 | best train/episode_reward |
