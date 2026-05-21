@@ -43,6 +43,18 @@ Two derived rules:
 
 Other algorithms will follow.
 
+### Algorithm documentation
+
+Each algorithm lives in its own package with theory, pseudocode, and benchmark
+results. Experimental metrics are tracked on
+[W&B (LatentLab/torchrl-hydra-template)](https://wandb.ai/LatentLab/torchrl-hydra-template/table).
+
+| Algorithm | Docs |
+|-----------|------|
+| DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
+| DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
+| A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+
 ## Main technologies
 
 **[TorchRL](https://github.com/pytorch/rl)** — A PyTorch-native library for
@@ -146,12 +158,12 @@ This buys three things:
 1. **Typed defaults** — every hyperparameter has an explicit Python default so the
    algorithm is runnable without any YAML.
 2. **Inline documentation** — IDE hover shows you the parameter and its default.
-3. **Discoverability** — opening `dqn.py` shows every knob without YAML lookups.
+3. **Discoverability** — opening `src/algorithms/dqn/dqn.py` shows every knob without YAML lookups.
 
 `replay_buffer` and `network` are `Callable` factories rather than scalars because
-they encode design decisions (which storage backend, what MLP shape). Their bodies
-sit at the top of `dqn.py` as `default_replay_buffer` and `default_network`. To
-swap them, edit those functions or pass a different factory in code.
+they encode design decisions (which storage backend, what MLP shape). Their defaults
+live in `src/algorithms/dqn/dqn.py` as constructor kwargs and inline lambdas. To
+swap them, edit those defaults or pass a different factory in code.
 
 `train.py` unpacks `cfg.algorithm` as `**kwargs`, so YAML values override defaults
 and CLI overrides override YAML:
@@ -308,8 +320,10 @@ Built-in callbacks: `ProgressCallback` (tqdm bar), `CheckpointCallback`,
 
 ## Adding a new algorithm
 
-1. Create `src/algorithms/my_algo.py`. Define `default_*` factories for design
-   choices (network, buffer) and put scalar HPs as keyword args on `__init__`.
+1. Create `src/algorithms/my_algo/my_algo.py` with an `__init__.py` re-export and
+   `README.md` (theory, pseudocode, W&B results). Follow the kwargs pattern above.
+   Use `Callable` factories for design choices (inline lambdas, `functools.partial`,
+   or small helpers).
 2. Implement `setup(make_env)`, `step(batch)`, `get_policy()`,
    `get_explore_policy()`, `get_collector_config()`,
    `_get_training_state()`, `_load_training_state()`.
@@ -400,7 +414,7 @@ coordinate with collaborators before force-pushing.
 git cherry-pick <commit-sha>            # one upstream commit at a time
 
 # — or — copy changed files manually
-git diff upstream/main -- src/algorithms/dqn.py
+git diff upstream/main -- src/algorithms/dqn/dqn.py
 pytest tests/test_smoke.py -v
 ```
 
@@ -475,12 +489,12 @@ by @gorodnitskiy. Their work on combining structured Hydra configs with clean
 training pipelines served as the foundation; this template adapts that philosophy
 to the reinforcement learning setting with TorchRL.
 
-The DQN reference implementation in `src/algorithms/dqn.py` is modelled on the
+The DQN reference implementation in `src/algorithms/dqn/dqn.py` is modelled on the
 torchrl SOTA reference at
 [`pytorch/rl/sota-implementations/dqn/dqn_cartpole.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/dqn/dqn_cartpole.py).
-The DDPG reference implementation in `src/algorithms/ddpg.py` is modelled on the
+The DDPG reference implementation in `src/algorithms/ddpg/ddpg.py` is modelled on the
 torchrl SOTA reference at
 [`pytorch/rl/sota-implementations/ddpg/ddpg.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/ddpg/ddpg.py).
-The A2C reference implementation in `src/algorithms/a2c.py` is modelled on the
+The A2C reference implementation in `src/algorithms/a2c/a2c.py` is modelled on the
 torchrl SOTA reference at
 [`pytorch/rl/sota-implementations/a2c/a2c_mujoco.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/a2c/a2c_mujoco.py).

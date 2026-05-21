@@ -282,9 +282,15 @@ src/
                               make_mlp_a2c_actor, make_mlp_a2c_value
   algorithms/
     base.py                 — BaseAlgorithm ABC; TrainingState and CollectorConfig dataclasses
-    dqn.py                  — DQNAlgorithm; replay/network factories (defaults + setup contract)
-    ddpg.py                 — DDPGAlgorithm; actor/critic/replay/noise factories
-    a2c.py                  — A2CAlgorithm; on-policy actor/critic with GAE + A2CLoss
+    dqn/
+      dqn.py                — DQNAlgorithm; replay/network factories (defaults + setup contract)
+      README.md             — theory, pseudocode, W&B benchmark table
+    ddpg/
+      ddpg.py               — DDPGAlgorithm; actor/critic/replay/noise factories
+      README.md             — theory, pseudocode, W&B benchmark table
+    a2c/
+      a2c.py                — A2CAlgorithm; on-policy actor/critic with GAE + A2CLoss
+      README.md             — theory, pseudocode, W&B benchmark table
   environments/
     environment.py          — Environment wrapper (holds factory kwargs, exposes make_env)
     factory.py              — make_env: gymnasium + transforms list + gym_kwargs/gym_backend
@@ -313,12 +319,20 @@ tests/
   test_smoke.py             — DQN-on-CartPole, DQN-on-Pong, DDPG-on-HalfCheetah, A2C-on-HalfCheetah smoke tests
 ```
 
+## Documentation
+
+Algorithm and model READMEs use **GitHub-flavoured markdown math**: inline formulas
+with `$...$`, display formulas with `$$...$$`. Do **not** use `\(...\)` or
+`\[...\]` — those delimiters are not rendered on GitHub.
+
+Example: `$Q(s, a; \theta)$`, `$\theta_{\text{target}}$`.
+
 ## Adding a new algorithm
 
-1. Create `src/algorithms/my_algo.py` following the kwargs pattern above. Use
-   `Callable` factories for design choices (inline lambdas, `functools.partial`,
-   or small helpers). Document the **call signature** each factory must satisfy
-   (e.g. `network(obs_shape, num_actions)`).
+1. Create `src/algorithms/my_algo/my_algo.py` with an `__init__.py` re-export
+   following the kwargs pattern above. Use `Callable` factories for design choices
+   (inline lambdas, `functools.partial`, or small helpers). Document the **call
+   signature** each factory must satisfy (e.g. `network(obs_shape, num_actions)`).
 2. Implement `setup(make_env)`, `step(batch) -> dict`, `get_policy()`,
    `get_explore_policy()`, `get_collector_config()`,
    `_get_training_state()`, `_load_training_state()`.
@@ -326,8 +340,12 @@ tests/
    `_partial_` / nested `_target_` blocks for factories. Use `instantiate`-
    compatible patterns (see DQN: replay buffer + partial `MLP`).
 4. Create `configs/experiment/my_algo/<env>.yaml` composing your algo + env.
-5. **Update `README.md` and `AGENTS.md`.**
-6. Add a smoke test in `tests/test_smoke.py`.
+5. Add `src/algorithms/my_algo/README.md` with theory, pseudocode, implementation
+   mapping, and an experimental-results table (link to
+   [W&B project table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)).
+   Use `$...$` for inline math (see [Documentation](#documentation)).
+6. **Update `README.md` and `AGENTS.md`.**
+7. Add a smoke test in `tests/test_smoke.py`.
 
 ## What not to do
 

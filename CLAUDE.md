@@ -6,7 +6,9 @@ See `AGENTS.md` for the full codebase guide. This file adds Claude-specific note
 
 **Always update `README.md` and `AGENTS.md`** when changing a public API, adding an
 algorithm, renaming a class, or changing a convention. README targets human readers;
-AGENTS.md targets AI agents.
+AGENTS.md targets AI agents. Each algorithm package under `src/algorithms/<algo>/`
+also has a `README.md` (theory, pseudocode, W&B results) — update it when adding
+experiments or changing algorithm behaviour.
 
 ## Design principles
 

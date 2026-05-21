@@ -1,7 +1,7 @@
 # @package _global_
 # A2C on HalfCheetah-v4 — replicates the torchrl SOTA reference
 # (https://github.com/pytorch/rl/blob/main/sota-implementations/a2c/a2c_mujoco.py).
-# All algorithm hyperparameters live in src/algorithms/a2c.py;
+# All algorithm hyperparameters live in src/algorithms/a2c/a2c.py;
 # only trainer-side settings are overridden here.
 defaults:
   - override /algorithm: a2c
