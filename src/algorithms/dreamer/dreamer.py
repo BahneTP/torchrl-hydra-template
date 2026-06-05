@@ -117,10 +117,9 @@ class DreamerAlgorithm(BaseAlgorithm):
             sampler=SliceSampler(
                 slice_len=self.sequence_length,
                 strict_length=True,
-                # Explicitly override the default heuristics with artificial keys
                 end_key="dummy_done",
                 traj_key="dummy_traj",
-                truncated_key=None,
+                # Let truncated_key fallback to its default; we will hide the data instead.
             ),
             batch_size=self.batch_size * self.sequence_length,
         )
@@ -128,20 +127,23 @@ class DreamerAlgorithm(BaseAlgorithm):
     def step(self, td: TensorDict) -> dict[str, float]:
         """Receives a single frame from the StatefulTrainer and conditionally updates."""
 
-        # 1. Add the temporal dimension and clone to avoid modifying the original
         td_expanded = td.unsqueeze(0).clone()
 
-        # 2. Inject artificial boundary markers using the exact geometry of the native tensors
-        reference_tensor = td_expanded.get("done")
+        # 1. Inject artificial boundary markers (all zeros)
+        ref = td_expanded.get("done")
+        td_expanded.set("dummy_done", torch.zeros_like(ref, device=self.device))
+        td_expanded.set(
+            "dummy_traj", torch.zeros_like(ref, dtype=torch.long, device=self.device)
+        )
 
-        td_expanded.set(
-            "dummy_done",
-            torch.zeros_like(reference_tensor, dtype=torch.bool, device=self.device),
-        )
-        td_expanded.set(
-            "dummy_traj",
-            torch.zeros_like(reference_tensor, dtype=torch.long, device=self.device),
-        )
+        # 2. THE CRITICAL FIX: Hide the native truncation keys.
+        # If SliceSampler finds them, it concatenates them with dummy_done,
+        # creating a shape[1]=2 tensor that crashes its own internal checks.
+        if "truncated" in td_expanded.keys():
+            td_expanded.rename_key_("truncated", "masked_truncated")
+
+        if "next" in td_expanded.keys() and "truncated" in td_expanded["next"].keys():
+            td_expanded["next"].rename_key_("truncated", "masked_truncated")
 
         # 3. Append to the sequence buffer
         self.replay_buffer.extend(td_expanded)

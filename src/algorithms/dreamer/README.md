@@ -1,0 +1,7 @@
+# Dreamer Implementation Notes
+
+* **1. Data Collection & Manual Stepping:** TorchRL's `SyncDataCollector` is engineered to aggregate data in discrete batches or complete episodes. Dreamer, conversely, mandates strict, continuous interleaving of data collection and optimization (e.g., executing $1$ gradient update per $4$ environment steps). Thus, a custom stateful trainer is requisite to manually step the environment and manage terminal resets without coupling optimization to episodic boundaries.
+
+* **2. The `is_init` vs. `is_first` Discrepancy:** TorchRL's initialization tracker natively emits an `is_init` boolean tensor, whereas the Dreamer Recurrent State Space Model (RSSM) explicitly depends on an `is_first` key to flush its latent memory vectors ($h_0 \leftarrow \vec{0}$) at the onset of a new trajectory. A `RenameTransform` within the environment pipeline is necessary to resolve this semantic mismatch.
+
+* **3. The Short Trajectory Geometric Conflict:** Dreamer optimizes via backpropagation through time over fixed-length sequences (e.g., $T=64$). During initial exploration, agent failures result in episodes significantly shorter than this horizon. Because TorchRL's `SliceSampler` strictly respects environmental boundaries, it throws a `RuntimeError` when the requested sequence length exceeds the empirical trajectory length. Emulating a boundary-agnostic FIFO ring buffer—achieved by masking native truncation keys and injecting artificial `dummy_done` tensors—forces the sampler to extract continuous, cross-episodic memory blocks.
