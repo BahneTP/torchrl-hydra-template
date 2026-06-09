@@ -1,6 +1,7 @@
 """
 This file is from the R2Dreamer Repository: https://github.com/NM512/r2dreamer
 It is modified to integrate with our Hydra Pipeline and TorchRL
+Changes are marked with Comments #!
 """
 
 import copy
@@ -14,12 +15,12 @@ from torch import nn
 from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import LambdaLR
 
-import src.algorithms.dreamer.networks as networks
-import src.algorithms.dreamer.rssm as rssm
-import src.algorithms.dreamer.tools as tools
-from src.algorithms.dreamer.networks import Projector
-from src.algorithms.dreamer.optim import LaProp, clip_grad_agc_
-from src.algorithms.dreamer.tools import to_f32
+import src.algorithms.dreamer.networks as networks  #! R2Dreamer used bare `import networks` (single-file script)
+import src.algorithms.dreamer.rssm as rssm  #!
+import src.algorithms.dreamer.tools as tools  #!
+from src.algorithms.dreamer.networks import Projector  #!
+from src.algorithms.dreamer.optim import LaProp, clip_grad_agc_  #!
+from src.algorithms.dreamer.tools import to_f32  #!
 
 
 class Dreamer(nn.Module):
@@ -35,13 +36,13 @@ class Dreamer(nn.Module):
         self.act_dim = act_space.n if hasattr(act_space, "n") else sum(act_space.shape)
         self.rep_loss = str(config.rep_loss)
 
-        # World model components (Supports original R2 Dreamer and TorchRL)
-        if hasattr(obs_space, "spaces"):
-            # Legacy Gym/Gymnasium Dict Space
-            shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
-        else:
-            # Modern TorchRL CompositeSpec
-            shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
+        # World model components (Supports original R2 Dreamer and TorchRL)  #! R2Dreamer only had `shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}`
+        if hasattr(obs_space, "spaces"):  #!
+            # Legacy Gym/Gymnasium Dict Space  #!
+            shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}  #!
+        else:  #!
+            # Modern TorchRL CompositeSpec  #!
+            shapes = {k: tuple(v.shape) for k, v in obs_space.items()}  #!
 
         self.encoder = networks.MultiEncoder(config.encoder, shapes)
         self.embed_size = self.encoder.out_dim
@@ -333,9 +334,12 @@ class Dreamer(nn.Module):
         model = torch.cat([recon[:, :5], openl], 1)
         truth = data["image"][:B]
         error = (model - truth + 1.0) / 2.0
-        return torch.cat([truth, model, error], 2)
+        #! Stacks truth / model / error as rows in the image (dim 3 = H for channel-first
+        # (B,T,C,H,W)).  R2Dreamer used dim=2 which was H for channel-last (B,T,H,W,C);
+        # with channel-first dim=2 is C, producing a meaningless channel-concat.
+        return torch.cat([truth, model, error], 3)
 
-    def update(self, data: TensorDict, initial: tuple[torch.Tensor, torch.Tensor]):
+    def update(self, data: TensorDict, initial: tuple[torch.Tensor, torch.Tensor]):  #! R2Dreamer took `replay_buffer` and sampled inside; we receive data/initial from the caller
         """Perform one optimization step on a given sequence batch."""
         torch.compiler.cudagraph_mark_step_begin()
         p_data = self.preprocess(data)
@@ -365,7 +369,7 @@ class Dreamer(nn.Module):
         self._scaler.update()  # adjust scale
         self._scheduler.step()  # increment scheduler
         self._optimizer.zero_grad(set_to_none=True)  # reset grads
-        mets["opt/lr"] = self._scheduler.get_lr()[0]
+        mets["opt/lr"] = self._scheduler.get_last_lr()[0]  #! R2Dreamer used deprecated get_lr()
         mets["opt/grad_scale"] = self._scaler.get_scale()
         if self._log_grads:
             updates = [
@@ -377,9 +381,7 @@ class Dreamer(nn.Module):
             mets["opt/param_rms"] = params_rms
             mets["opt/update_rms"] = update_rms
         metrics.update(mets)
-        # update latent vectors in replay buffer
-        replay_buffer.update(index, stoch.detach(), deter.detach())
-        return metrics
+        return (stoch.detach(), deter.detach()), metrics  #! R2Dreamer returned only metrics; latents returned so caller can refresh buffer
 
     def _cal_grad(self, data, initial):
         """Compute gradients for one batch.
@@ -467,8 +469,11 @@ class Dreamer(nn.Module):
             raise NotImplementedError
 
         # reward and continue
-        losses["rew"] = torch.mean(-self.reward(feat).log_prob(to_f32(data["reward"])))
-        cont = 1.0 - to_f32(data["is_terminal"])
+        losses["rew"] = torch.mean(
+            -self.reward(feat).log_prob(to_f32(data["next", "reward"]))  #! R2Dreamer used data["reward"]; TorchRL stores reward in next step
+        )
+        #! TorchRL uses "terminated" (truly terminal) instead of R2Dreamer's "is_terminal"
+        cont = 1.0 - to_f32(data["terminated"])  #! R2Dreamer used data["is_terminal"]
         losses["con"] = torch.mean(-self.cont(feat).log_prob(cont))
         # log
         metrics["dyn_entropy"] = torch.mean(self.rssm.get_dist(prior_logit).entropy())
@@ -538,11 +543,13 @@ class Dreamer(nn.Module):
         metrics["action_entropy"] = torch.mean(entropy)
         metrics.update(tools.tensorstats(imag_action, "action"))
 
-        # === Replay-based value learning (keep gradients through world model) ===
+        #! === Replay-based value learning (keep gradients through world model) ===
+        # TorchRL key names: "done" (any episode end) and "terminated" (truly terminal).
+        # R2Dreamer used "is_last" / "is_terminal" which don't exist in TorchRL rollouts.
         last, term, reward = (
-            to_f32(data["is_last"]),
-            to_f32(data["is_terminal"]),
-            to_f32(data["reward"]),
+            to_f32(data["done"]),  #! R2Dreamer used data["is_last"]
+            to_f32(data["terminated"]),  #! R2Dreamer used data["is_terminal"]
+            to_f32(data["next", "reward"]),  #! R2Dreamer used data["reward"]
         )
         feat = self.rssm.get_feat(post_stoch, post_deter)
         boot = ret[:, 0].reshape(B, T, 1)
@@ -613,22 +620,26 @@ class Dreamer(nn.Module):
     @torch.no_grad()
     def preprocess(self, data):
         if "image" in data:
-            data["image"] = to_f32(data["image"]) / 255.0
+            # TorchRL's ToTensorImage transform already divides by 255 and returns
+            # float32 in [0, 1].  Dividing again would make every pixel ~255× too
+            # small (effectively zero).  R2Dreamer did the division here because raw
+            # Gymnasium returned uint8; that step is now handled by the env pipeline.
+            data["image"] = to_f32(data["image"])  #! R2Dreamer did `/ 255.0` here; TorchRL's ToTensorImage already normalises to [0,1]
         return data
 
     @torch.no_grad()
     def augment_data(self, data):
         data_aug = {k: torch.cat([v, v], axis=0) for k, v in data.items()}
-        # (B, T, H, W, C) -> (B, T, C, H, W)
-        image = data_aug["image"].permute(0, 1, 4, 2, 3)
+        #! TorchRL data is already (B, T, C, H, W).  random_translate also expects that
+        # format (it unpacks B, T, C, H, W = x.shape).  The original R2Dreamer permutes
+        # were converting from channel-last (B,T,H,W,C) → channel-first and back; both
+        # are dropped here because the data never leaves channel-first format.
         data_aug["image"] = self.random_translate(
-            image,
+            data_aug["image"],
             self.aug_max_delta,
             same_across_time=self.aug_same_across_time,
             bilinear=self.aug_bilinear,
         )
-        # (B, T, C, H, W) -> (B, T, H, W, C)
-        data_aug["image"] = data_aug["image"].permute(0, 1, 3, 4, 2)
         return data_aug
 
     @torch.no_grad()

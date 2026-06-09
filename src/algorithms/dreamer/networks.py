@@ -1,5 +1,7 @@
 """
 This file is from the R2Dreamer Repository: https://github.com/NM512/r2dreamer
+It is modified to integrate with our Hydra Pipeline and TorchRL
+Changes are marked with Comments #!
 """
 
 import math
@@ -10,8 +12,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-import src.algorithms.dreamer.distributions as dists
-from src.algorithms.dreamer.tools import weight_init_
+import src.algorithms.dreamer.distributions as dists  #! R2Dreamer used bare `import distributions as dists`
+from src.algorithms.dreamer.tools import weight_init_  #!
 
 
 class LambdaLayer(nn.Module):
@@ -138,11 +140,13 @@ class MultiEncoder(nn.Module):
         self.selectors = []
         self.encoders = []
         if self.cnn_shapes:
-            input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
-            input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
+            # TorchRL stores images in channel-first (C, H, W); first dim is channels  #! R2Dreamer assumed channel-last (H, W, C): `input_ch = sum([v[-1] for v in ...])`
+            input_ch = sum([v[0] for v in self.cnn_shapes.values()])  #!
+            some_v = tuple(self.cnn_shapes.values())[0]  #!
+            input_shape = (some_v[1], some_v[2], input_ch)  #!
             self.encoders.append(ConvEncoder(config.cnn, input_shape))
-            self.selectors.append(
-                lambda obs: torch.cat([obs[k] for k in self.cnn_shapes], -1)
+            self.selectors.append(  #! R2Dreamer concatenated on last dim (-1); channel-first needs dim=-3 (C axis)
+                lambda obs: torch.cat([obs[k] for k in self.cnn_shapes], dim=-3)  #!
             )
             self.out_dim += self.encoders[-1].out_dim
         if self.mlp_shapes:
@@ -192,8 +196,9 @@ class MultiDecoder(nn.Module):
 
         # Unlike the encoder, each decoder is initialized independently.
         if self.cnn_shapes:
-            some_shape = list(self.cnn_shapes.values())[0]
-            shape = (sum(x[-1] for x in self.cnn_shapes.values()),) + some_shape[:-1]
+            # TorchRL shapes are (C, H, W); channels are first dim  #! R2Dreamer used channel-last (H,W,C): `shape = (sum(x[-1]...),) + some_shape[:-1]`
+            some_shape = list(self.cnn_shapes.values())[0]  #!
+            shape = (sum(x[0] for x in self.cnn_shapes.values()),) + some_shape[1:]  #!
             self._cnn = ConvDecoder(
                 config.cnn,
                 deter,
@@ -274,12 +279,11 @@ class ConvEncoder(nn.Module):
 
     def forward(self, obs):
         """Encode image-like observations with a CNN."""
-        # (B, T, H, W, C)
+        # (B, T, C, H, W) — TorchRL channel-first format  #! R2Dreamer received (B,T,H,W,C) channel-last and permuted here
         obs = obs - 0.5
-        # (B*T, H, W, C)
-        x = obs.reshape(-1, *obs.shape[-3:])
         # (B*T, C, H, W)
-        x = x.permute(0, 3, 1, 2)
+        x = obs.reshape(-1, *obs.shape[-3:])
+        # already channel-first; no permute needed  #! R2Dreamer had `x = x.permute(0, 3, 1, 2)` here
         # (B*T, C_feat, H_feat, W_feat)
         x = self.layers(x)
         # (B*T, C_feat*H_feat*W_feat)
@@ -368,11 +372,11 @@ class ConvDecoder(nn.Module):
         x = self.sp_norm(x0 + x1)
         # (B*T, C_feat, H_feat, W_feat)
         x = x.permute(0, 3, 1, 2)
-        x = self.layers(x)  # Upsamples to original H, W
-        # (B*T, H, W, C)
-        x = x.permute(0, 2, 3, 1)
-        x = torch.sigmoid(x)
-        # (B, T, H, W, C)
+        x = self.layers(x)  # Upsamples to original H, W; output is (B*T, C, H, W)
+        x = torch.sigmoid(
+            x
+        )  #! R2Dreamer had `x = x.permute(0, 2, 3, 1)` here to go back to channel-last
+        # (B, T, C, H, W) — keep channel-first to match TorchRL format  #!
         return x.reshape(*B_T, *x.shape[1:])
 
 

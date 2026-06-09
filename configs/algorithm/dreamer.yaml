@@ -2,15 +2,20 @@ _target_: src.algorithms.dreamer.dreamer.DreamerAlgorithm
 
 
 # Wrapper Parameters (DreamerAlgorithm)
-sequence_length: 64
-batch_size: 16
-train_ratio: 4
-prefill_frames: 5000
-buffer_size: 1000000
+train_ratio: 128
+action_repeat: ${environment.gym_kwargs.frame_skip}
 device: ${trainer.accelerator}
 
+buffer_config:
+  batch_size: 16
+  batch_length: 64
+  max_size: 5e5
+  storage_device: cpu #! Keep Replay Buffer on CPU (Mabe use GPU on Kiel)
+  device: ${trainer.accelerator}
+
+
 # Inner Engine Parameters (Dreamer)
-config:
+dreamer_config:
   act_entropy: 3e-4
   kl_free: 1.0
   imag_horizon: 15

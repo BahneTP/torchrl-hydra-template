@@ -1,14 +1,16 @@
 """
 This file is from the R2Dreamer Repository: https://github.com/NM512/r2dreamer
+It is modified to integrate with our Hydra Pipeline and TorchRL
+Changes are marked with Comments #!
 """
 
 import torch
 from torch import distributions as torchd
 from torch import nn
 
-import src.algorithms.dreamer.distributions as dists
-from src.algorithms.dreamer.networks import BlockLinear, LambdaLayer
-from src.algorithms.dreamer.tools import rpad, weight_init_
+import src.algorithms.dreamer.distributions as dists  #! R2Dreamer used bare `import distributions as dists`
+from src.algorithms.dreamer.networks import BlockLinear, LambdaLayer  #!
+from src.algorithms.dreamer.tools import rpad, weight_init_  #!
 
 
 class Deter(nn.Module):
@@ -189,7 +191,9 @@ class RSSM(nn.Module):
             stoch, deter, logit = self.obs_step(
                 stoch, deter, action[:, i], embed[:, i], reset[:, i]
             )
-            stochs.append(stoch)
+            stochs.append(
+                stoch
+            )  #! R2Dreamer had a bug: `stochs.append(stoch)` appeared twice here
             deters.append(deter)
             logits.append(logit)
         # (B, T, S, K), (B, T, D), (B, T, S, K)
