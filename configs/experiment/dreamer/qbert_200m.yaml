@@ -1,0 +1,31 @@
+# @package _global_
+defaults:
+  - override /algorithm: dreamer
+  - override /environment: qbert
+  - override /logger: wandb
+  - _self_
+
+trainer:
+  accelerator: gpu
+  devices: [2]
+  seed: 42
+  total_frames: 4.1e5 # 100k Steps (frame_skip=4)
+  num_envs: 1
+  log_every_n_steps: 5e3
+
+model:
+  deter: 8192
+  hidden: 1024
+  discrete: 64
+  depth: 64
+  units: 1024
+  act: 'SiLU'
+  norm: True
+
+env:
+  encoder:
+    mlp_keys: '$^'
+    cnn_keys: 'image'
+  decoder:
+    mlp_keys: '$^'
+    cnn_keys: 'image'

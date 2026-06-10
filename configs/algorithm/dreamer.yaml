@@ -2,7 +2,7 @@ _target_: src.algorithms.dreamer.dreamer.DreamerAlgorithm
 
 
 # Wrapper Parameters (DreamerAlgorithm)
-train_ratio: 128
+train_ratio: 128 # Divides Batch_Size * Batch_Length to determine the number of updates per data collection phase (how many frames till next update)
 action_repeat: ${environment.gym_kwargs.frame_skip}
 device: ${trainer.accelerator}
 

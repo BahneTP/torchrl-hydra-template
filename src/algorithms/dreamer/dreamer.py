@@ -146,6 +146,22 @@ class DreamerAlgorithm(BaseAlgorithm):
         transitions_added = int(td.batch_size[0]) if len(td.batch_size) > 0 else 1
         self._collected_frames += transitions_added * self.action_repeat
 
+        # Track episode completions on every step so episode/score is never missed
+        # at a logging boundary (frames_per_batch=1 means done rarely coincides with log steps)
+        done = td.get(("next", "done"), default=None)
+        if done is not None and done.bool().any():
+            mask = done.bool().reshape(-1)
+            ep_reward = td.get(("next", "episode_reward"), default=None)
+            if ep_reward is not None:
+                self._last_metrics["episode/score"] = (
+                    ep_reward.reshape(-1)[mask].float().mean().item()
+                )
+            ep_length = td.get(("next", "step_count"), default=None)
+            if ep_length is not None:
+                self._last_metrics["episode/length"] = (
+                    ep_length.reshape(-1)[mask].float().mean().item()
+                )
+
         metrics = {}
 
         # 3. The Minimum Viability Constraint
@@ -155,7 +171,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         if self._collected_frames <= min_required_frames:
             # Dynamically defer the target to prevent a deferred update cascade
             self._next_update_target = self._collected_frames + self._frames_per_update
-            return metrics
+            return self._last_metrics
 
         # 4. Proportional Update Calculus
         update_num = 0
@@ -173,7 +189,7 @@ class DreamerAlgorithm(BaseAlgorithm):
 
         if update_num > 0:
             metrics["train/opt/updates"] = update_num
-            self._last_metrics = metrics
+            self._last_metrics.update(metrics)
 
         return self._last_metrics
 
