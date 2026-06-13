@@ -114,6 +114,9 @@ class DreamerAlgorithm(BaseAlgorithm):
         self._frames_per_update = (batch_steps / self.train_ratio) * self.action_repeat
         self._next_update_target = self._frames_per_update
         self._last_metrics: dict[str, float] = {}
+        self._total_updates = 0
+        self._last_video_frame = 0
+        self.video_log_every = 50_000  # log world model video every N frames
 
     def setup(self, make_env: Callable[[], EnvBase]) -> None:
         proof_env = make_env()
@@ -138,8 +141,6 @@ class DreamerAlgorithm(BaseAlgorithm):
         """Receives a single frame from the StatefulTrainer and conditionally updates."""
 
         # 1. Append directly to the sequence buffer.
-        # Buffer.add_transition does the unsqueeze(1) internally for 2-D storage;
-        # do NOT unsqueeze here or the stored tensor will have an extra leading dim.
         self.replay_buffer.add_transition(td)
 
         # 2. Increment the empirical data tracker
@@ -173,13 +174,13 @@ class DreamerAlgorithm(BaseAlgorithm):
             self._next_update_target = self._collected_frames + self._frames_per_update
             return self._last_metrics
 
-        # 4. Proportional Update Calculus
+        # 4. This is only important in future maybe to not miss any steps if frames_per_update is not an integer multiple of frames_per_batch.  With frames_per_batch=1, this loop executes exactly once per step once the minimum viability constraint is passed.
         update_num = 0
         while self._collected_frames >= self._next_update_target:
             update_num += 1
             self._next_update_target += self._frames_per_update
 
-        # 5. Execute Backpropagation Through Time (BPTT)
+        # 5. Execute Backpropagation Through Time
         for _ in range(update_num):
             data, index, initial = self.replay_buffer.sample()
             (stoch, deter), _metrics = self.model.update(data, initial)
@@ -188,10 +189,31 @@ class DreamerAlgorithm(BaseAlgorithm):
             metrics = {f"train/{k}": v for k, v in _metrics.items()}
 
         if update_num > 0:
-            metrics["train/opt/updates"] = update_num
+            self._total_updates += update_num
+            metrics["train/opt/updates"] = self._total_updates
             self._last_metrics.update(metrics)
 
+            if (
+                self.dreamer_config.rep_loss == "dreamer"
+                and self._collected_frames - self._last_video_frame
+                >= self.video_log_every
+            ):
+                self._last_video_frame = self._collected_frames
+                self._last_metrics["video/world_model"] = self._make_video(
+                    data, initial
+                )
+
         return self._last_metrics
+
+    @torch.no_grad()
+    def _make_video(self, data, initial):
+        import wandb
+
+        # (1, T, 3, H*3, W) — truth / reconstruction / open-loop stacked vertically
+        frames = self.model.video_pred(data[:1], tuple(s[:1] for s in initial))
+        # (T, 3, H*3, W) channel-first uint8 — wandb.Video accepts (T, C, H, W)
+        frames = (frames[0].cpu().nan_to_num(0.0).clamp(0, 1) * 255).byte().numpy()
+        return wandb.Video(frames, fps=10, format="mp4")
 
     def get_policy(self) -> TensorDictModule:
         return self._eval_policy

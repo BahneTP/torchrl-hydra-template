@@ -20,18 +20,14 @@ class Buffer:
             #! Flat (ndim=1) storage: every transition occupies one slot in a 1-D
             # sequence.  The previous ndim=2 design stored each transition as a
             # 1-timestep trajectory (shape [N, 1, ...]), which made SliceSampler
-            # unable to find contiguous windows longer than 1 step.
             storage=LazyTensorStorage(
                 max_size=int(config.max_size), device=self.storage_device
             ),
-            #! end_key="done" tells SliceSampler where episodes end so it never
-            # samples a window that crosses an episode boundary.
-            # traj_key="episode" was the previous approach but TorchRL's Collector
-            # does not write an "episode" key, so that lookup always failed.
+            #! traj_key="episode" groups all of env-i's steps into one long stream
             sampler=SliceSampler(
                 num_slices=self.batch_size,
-                end_key="done",
-                traj_key=None,
+                traj_key="episode",
+                end_key=None,
                 truncated_key=None,
                 strict_length=True,
             ),
@@ -41,9 +37,11 @@ class Buffer:
 
     def add_transition(self, data):
         #! data: TensorDict with batch_size (num_envs,) from the Collector.
-        # extend() adds one step per env to the flat 1-D storage.
-        # The previous unsqueeze(1) was required by ndim=2 storage to create the
-        # inner time dimension; it is not needed (and harmful) with ndim=1.
+        # Stamp each step with a constant env index as the "episode" key so that
+        # SliceSampler(traj_key="episode") can group env-i's transitions into one
+        # contiguous stream and sample freely across game-over boundaries.
+        num_envs = data.batch_size[0] if data.batch_size else 1
+        data.set("episode", torch.arange(num_envs, dtype=torch.int32))
         self._buffer.extend(data)
 
     def sample(self):
