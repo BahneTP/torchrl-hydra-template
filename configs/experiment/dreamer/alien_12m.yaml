@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - override /algorithm: dreamer
-  - override /environment: qbert
+  - override /environment: alien
   - override /logger: wandb
   - _self_
 
@@ -9,9 +9,9 @@ trainer:
   accelerator: gpu
   devices: [2]
   seed: 42
-  total_frames: 4.1e5 # 100k Steps (frame_skip=4)
+  total_frames: 1e5 # 100k agent steps = 400k game frames (action_repeat=4)
   num_envs: 1             # number of parallel environments
-  log_every_n_steps: 5e3
+  log_every_n_steps: 1000
 
 model:
   deter: 2048
