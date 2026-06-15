@@ -1,45 +1,5 @@
+defaults:
+  - atari_dreamer
+  - _self_
+
 name: ALE/Alien-v5
-gym_backend: gymnasium
-gym_kwargs:
-  from_pixels: true
-  pixels_only: false
-  frame_skip: 4 # Equivalents for: action_repeat=4, pooling=2, aggregate="max"
-  repeat_action_probability: 0.0 # Equivalent for: sticky=False
-  full_action_space: false   # Equivalent for: actions="needed" (Minimal Action Set)
-
-# These transforms replicate the `reset()` and `_obs()` methods
-transforms: # TODO: Restructure this since it contains Dreamer specifics
-  # Stochastic reset heuristics
-  - _target_: torchrl.envs.NoopResetEnv
-    noops: 30
-    random: true
-
-  # Sequence boundary tracking for the Recurrent State Space Model
-  - _target_: torchrl.envs.InitTracker
-  - _target_: torchrl.envs.RenameTransform
-    in_keys: ["is_init"]
-    out_keys: ["is_first"]
-
-  # Visual tensor extraction (yields "pixels")
-  - _target_: torchrl.envs.ToTensorImage
-
-  # Spatial dimensionality reduction
-  - _target_: torchrl.envs.Resize
-    w: 64
-    h: 64
-    interpolation: bilinear
-
-  # Nomenclature synchronization
-  - _target_: torchrl.envs.RenameTransform
-    in_keys: ["pixels"]
-    out_keys: ["image"]
-
-  # Global episodic truncation (Enforces the 100k Benchmark)
-  - _target_: torchrl.envs.StepCounter
-    max_steps: 27000
-
-  # Continuous metric aggregation
-  - _target_: torchrl.envs.RewardSum
-
-  # Final floating-point precision standardization
-  - _target_: torchrl.envs.DoubleToFloat

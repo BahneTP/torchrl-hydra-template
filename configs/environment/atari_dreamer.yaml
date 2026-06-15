@@ -1,0 +1,41 @@
+# Shared base for Dreamer Atari100k Benchmark
+
+#
+# Note: the InitTracker + RenameTransforms are Dreamer-specific (is_first, image
+# key names)
+name: ???
+gym_backend: gymnasium
+gym_kwargs:
+  from_pixels: true
+  pixels_only: false
+  frame_skip: 4                   # action_repeat=4; ALE internally max-pools last 2 frames
+  repeat_action_probability: 0.0  # sticky=False (matches R2Dreamer default)
+  full_action_space: false        # minimal action set
+
+transforms:
+  - _target_: torchrl.envs.NoopResetEnv
+    noops: 30
+    random: true
+
+  - _target_: torchrl.envs.InitTracker
+  - _target_: torchrl.envs.RenameTransform
+    in_keys: ["is_init"]
+    out_keys: ["is_first"]
+
+  - _target_: torchrl.envs.ToTensorImage
+
+  - _target_: torchrl.envs.Resize
+    w: 64
+    h: 64
+    interpolation: bilinear
+
+  - _target_: torchrl.envs.RenameTransform
+    in_keys: ["pixels"]
+    out_keys: ["image"]
+
+  - _target_: torchrl.envs.StepCounter
+    max_steps: 27000              # 108000 ALE frames / action_repeat=4
+
+  - _target_: torchrl.envs.RewardSum
+
+  - _target_: torchrl.envs.DoubleToFloat
