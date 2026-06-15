@@ -63,11 +63,14 @@ class Dreamer(nn.Module):
         if hasattr(act_space, "multi_discrete"):
             config.actor.dist = config.actor.dist.multi_disc
             self.act_discrete = True
-        elif hasattr(act_space, "discrete"):
+            print("Using multi-discrete action space", flush=True)
+        elif hasattr(act_space, "n"):
             config.actor.dist = config.actor.dist.disc
             self.act_discrete = True
+            print("Using discrete action space", flush=True)
         else:
             config.actor.dist = config.actor.dist.cont
+            print("Using continuous action space", flush=True)
 
         # Actor-critic components
         self.actor = networks.MLPHead(config.actor, self.rssm.feat_size)
@@ -145,9 +148,12 @@ class Dreamer(nn.Module):
         # count number of parameters in each module
         for key, module in modules.items():
             if isinstance(module, nn.Parameter):
-                print(f"{module.numel():>14,}: {key}")
+                print(f"{module.numel():>14,}: {key}", flush=True)
             else:
-                print(f"{sum(p.numel() for p in module.parameters()):>14,}: {key}")
+                print(
+                    f"{sum(p.numel() for p in module.parameters()):>14,}: {key}",
+                    flush=True,
+                )
         self._named_params = OrderedDict()
         for name, module in modules.items():
             if isinstance(module, nn.Parameter):
@@ -156,7 +162,8 @@ class Dreamer(nn.Module):
                 for param_name, param in module.named_parameters():
                     self._named_params[f"{name}.{param_name}"] = param
         print(
-            f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} parameters."
+            f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} parameters.",
+            flush=True,
         )
 
         def _agc(params):
@@ -181,7 +188,7 @@ class Dreamer(nn.Module):
         self.train()
         self.clone_and_freeze()
         if config.compile:
-            print("Compiling update function with torch.compile...")
+            print("Compiling update function with torch.compile...", flush=True)
             self._cal_grad = torch.compile(self._cal_grad, mode="reduce-overhead")
 
     def _update_slow_target(self):
@@ -339,7 +346,9 @@ class Dreamer(nn.Module):
         # with channel-first dim=2 is C, producing a meaningless channel-concat.
         return torch.cat([truth, model, error], 3)
 
-    def update(self, data: TensorDict, initial: tuple[torch.Tensor, torch.Tensor]):  #! R2Dreamer took `replay_buffer` and sampled inside; we receive data/initial from the caller
+    def update(
+        self, data: TensorDict, initial: tuple[torch.Tensor, torch.Tensor]
+    ):  #! R2Dreamer took `replay_buffer` and sampled inside; we receive data/initial from the caller
         """Perform one optimization step on a given sequence batch."""
         torch.compiler.cudagraph_mark_step_begin()
         p_data = self.preprocess(data)
@@ -369,7 +378,9 @@ class Dreamer(nn.Module):
         self._scaler.update()  # adjust scale
         self._scheduler.step()  # increment scheduler
         self._optimizer.zero_grad(set_to_none=True)  # reset grads
-        mets["opt/lr"] = self._scheduler.get_last_lr()[0]  #! R2Dreamer used deprecated get_lr()
+        mets["opt/lr"] = self._scheduler.get_last_lr()[
+            0
+        ]  #! R2Dreamer used deprecated get_lr()
         mets["opt/grad_scale"] = self._scaler.get_scale()
         if self._log_grads:
             updates = [
@@ -381,7 +392,10 @@ class Dreamer(nn.Module):
             mets["opt/param_rms"] = params_rms
             mets["opt/update_rms"] = update_rms
         metrics.update(mets)
-        return (stoch.detach(), deter.detach()), metrics  #! R2Dreamer returned only metrics; latents returned so caller can refresh buffer
+        return (
+            stoch.detach(),
+            deter.detach(),
+        ), metrics  #! R2Dreamer returned only metrics; latents returned so caller can refresh buffer
 
     def _cal_grad(self, data, initial):
         """Compute gradients for one batch.
@@ -470,7 +484,9 @@ class Dreamer(nn.Module):
 
         # reward and continue
         losses["rew"] = torch.mean(
-            -self.reward(feat).log_prob(to_f32(data["next", "reward"]))  #! R2Dreamer used data["reward"]; TorchRL stores reward in next step
+            -self.reward(feat).log_prob(
+                to_f32(data["next", "reward"])
+            )  #! R2Dreamer used data["reward"]; TorchRL stores reward in next step
         )
         #! TorchRL uses "terminated" (truly terminal) instead of R2Dreamer's "is_terminal"
         cont = 1.0 - to_f32(data["terminated"])  #! R2Dreamer used data["is_terminal"]
@@ -624,7 +640,9 @@ class Dreamer(nn.Module):
             # float32 in [0, 1].  Dividing again would make every pixel ~255× too
             # small (effectively zero).  R2Dreamer did the division here because raw
             # Gymnasium returned uint8; that step is now handled by the env pipeline.
-            data["image"] = to_f32(data["image"])  #! R2Dreamer did `/ 255.0` here; TorchRL's ToTensorImage already normalises to [0,1]
+            data["image"] = to_f32(
+                data["image"]
+            )  #! R2Dreamer did `/ 255.0` here; TorchRL's ToTensorImage already normalises to [0,1]
         return data
 
     @torch.no_grad()
