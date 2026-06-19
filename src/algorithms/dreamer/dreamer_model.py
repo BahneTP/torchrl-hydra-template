@@ -488,8 +488,8 @@ class Dreamer(nn.Module):
                 to_f32(data["next", "reward"])
             )  #! R2Dreamer used data["reward"]; TorchRL stores reward in next step
         )
-        #! TorchRL uses "terminated" (truly terminal) instead of R2Dreamer's "is_terminal"
-        cont = 1.0 - to_f32(data["terminated"])  #! R2Dreamer used data["is_terminal"]
+        #! TorchRL stores terminal signals under "next" — same nesting as reward (line 488).
+        cont = 1.0 - to_f32(data["next", "terminated"])  #! R2Dreamer used data["is_terminal"]
         losses["con"] = torch.mean(-self.cont(feat).log_prob(cont))
         # log
         metrics["dyn_entropy"] = torch.mean(self.rssm.get_dist(prior_logit).entropy())
@@ -563,8 +563,8 @@ class Dreamer(nn.Module):
         # TorchRL key names: "done" (any episode end) and "terminated" (truly terminal).
         # R2Dreamer used "is_last" / "is_terminal" which don't exist in TorchRL rollouts.
         last, term, reward = (
-            to_f32(data["done"]),  #! R2Dreamer used data["is_last"]
-            to_f32(data["terminated"]),  #! R2Dreamer used data["is_terminal"]
+            to_f32(data["next", "done"]),  #! R2Dreamer used data["is_last"]
+            to_f32(data["next", "terminated"]),  #! R2Dreamer used data["is_terminal"]
             to_f32(data["next", "reward"]),  #! R2Dreamer used data["reward"]
         )
         feat = self.rssm.get_feat(post_stoch, post_deter)

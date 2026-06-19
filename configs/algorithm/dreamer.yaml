@@ -25,9 +25,9 @@ dreamer_config:
   log_grads: False
   device: ${trainer.accelerator}
   
-  # Set to standard DreamerV3 reconstruction
-  rep_loss: "dreamer" 
-  
+  # r2dreamer: Barlow Twins (decoder-free). Use "dreamer" for standard DreamerV3 reconstruction.
+  rep_loss: "dreamer"
+
   lr: 4e-5
   agc: 0.3
   pmin: 1e-3
@@ -37,18 +37,18 @@ dreamer_config:
   warmup: 1000
   slow_target_update: 1
   slow_target_fraction: 0.02
-  
-  # Adjusted loss scales for reconstruction-based learning
+
+  # Loss scales from R2Dreamer paper Table 2
   loss_scales:
-    recon: 1.0
+    recon: 1.0     # unused in r2dreamer mode (no decoder)
     rew: 1.0
     con: 1.0
-    dyn: 0.5
+    dyn: 1.0       # βdyn=1 per paper (was 0.5)
     rep: 0.1
     policy: 1.0
     value: 1.0
     repval: 0.3
-    barlow: 0.0
+    barlow: 0.05   # βBT=0.05 per paper (was 0.0)
     infonce: 0.0
     swav: 0.0
     temp: 0.0
