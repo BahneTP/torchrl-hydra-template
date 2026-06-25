@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from collections import deque
 from typing import Callable
 from omegaconf import DictConfig, OmegaConf, open_dict
 
@@ -100,12 +101,16 @@ class DreamerAlgorithm(BaseAlgorithm):
         device: torch.device | None = None,
         train_ratio: float = 128.0,
         action_repeat: int = 4,
+        agent_video_log_every: int = 50_000,
+        agent_video_max_steps: int = 200,
     ) -> None:
         super().__init__(device)
         self.dreamer_config = dreamer_config
         self.buffer_config = buffer_config
         self.train_ratio = train_ratio
         self.action_repeat = action_repeat
+        self.agent_video_log_every = agent_video_log_every
+        self.agent_video_max_steps = agent_video_max_steps
         self.batch_length = buffer_config.batch_length
         self.batch_size = buffer_config.batch_size
 
@@ -113,12 +118,22 @@ class DreamerAlgorithm(BaseAlgorithm):
         batch_steps = self.batch_size * self.batch_length
         self._frames_per_update = (batch_steps / self.train_ratio) * self.action_repeat
         self._next_update_target = self._frames_per_update
-        self._last_metrics: dict[str, float] = {}
+        self._ep_scores: deque[float] = deque(maxlen=30)
+        self._ep_lengths: deque[float] = deque(maxlen=30)
         self._total_updates = 0
         self._last_video_frame = 0
+        self._last_agent_video_frame = 0
         self.video_log_every = 50_000  # log world model video every N frames
+        self._last_train_metrics: dict[str, float] = {}
+        self._make_env: Callable[[], EnvBase] | None = None
+
+    @property
+    def log_step(self) -> int:
+        """Logical frame count (collector steps × action_repeat) for the WandB x-axis."""
+        return self._collected_frames
 
     def setup(self, make_env: Callable[[], EnvBase]) -> None:
+        self._make_env = make_env
         proof_env = make_env()
         obs_space = proof_env.observation_spec
         act_space = proof_env.action_spec
@@ -137,6 +152,14 @@ class DreamerAlgorithm(BaseAlgorithm):
         # 3. Create a Sequence-Aware Replay Buffer
         self.replay_buffer = Buffer(self.buffer_config)
 
+    def _episode_metrics(self) -> dict[str, float]:
+        if not self._ep_scores:
+            return {}
+        out: dict[str, float] = {"episode/score": max(self._ep_scores)}
+        if self._ep_lengths:
+            out["episode/length"] = self._ep_lengths[-1]
+        return out
+
     def step(self, td: TensorDict) -> dict[str, float]:
         """Receives a single frame from the StatefulTrainer and conditionally updates."""
 
@@ -147,34 +170,29 @@ class DreamerAlgorithm(BaseAlgorithm):
         transitions_added = int(td.batch_size[0]) if len(td.batch_size) > 0 else 1
         self._collected_frames += transitions_added * self.action_repeat
 
-        # Track episode completions on every step so episode/score is never missed
-        # at a logging boundary (frames_per_batch=1 means done rarely coincides with log steps)
+        # Track episode completions in a rolling window for log-boundary reporting.
         done = td.get(("next", "done"), default=None)
         if done is not None and done.bool().any():
             mask = done.bool().reshape(-1)
             ep_reward = td.get(("next", "episode_reward"), default=None)
             if ep_reward is not None:
-                self._last_metrics["episode/score"] = (
-                    ep_reward.reshape(-1)[mask].float().mean().item()
-                )
+                for score in ep_reward.reshape(-1)[mask].float().tolist():
+                    self._ep_scores.append(score)
             ep_length = td.get(("next", "step_count"), default=None)
             if ep_length is not None:
-                self._last_metrics["episode/length"] = (
-                    ep_length.reshape(-1)[mask].float().mean().item()
-                )
-
-        metrics = {}
+                for length in ep_length.reshape(-1)[mask].float().tolist():
+                    self._ep_lengths.append(length)
 
         # 3. The Minimum Viability Constraint
         min_required_frames = (
             self.batch_length + 1
         ) * self.action_repeat  # At least enough frames to sample
         if self._collected_frames <= min_required_frames:
-            # Dynamically defer the target to prevent a deferred update cascade
             self._next_update_target = self._collected_frames + self._frames_per_update
-            return self._last_metrics
+            return self._episode_metrics()
 
-        # 4. This is only important in future maybe to not miss any steps if frames_per_update is not an integer multiple of frames_per_batch.  With frames_per_batch=1, this loop executes exactly once per step once the minimum viability constraint is passed.
+        # 4. Proportional update count — fires exactly once per step in normal
+        # operation (frames_per_batch=1), but catches up if frames_per_batch > 1.
         update_num = 0
         while self._collected_frames >= self._next_update_target:
             update_num += 1
@@ -185,13 +203,13 @@ class DreamerAlgorithm(BaseAlgorithm):
             data, index, initial = self.replay_buffer.sample()
             (stoch, deter), _metrics = self.model.update(data, initial)
             self.replay_buffer.update(index, stoch, deter)
-            # Mirror R2Dreamer: prefix all model metrics with "train/"
-            metrics = {f"train/{k}": v for k, v in _metrics.items()}
+            self._last_train_metrics = {f"train/{k}": v for k, v in _metrics.items()}
 
         if update_num > 0:
             self._total_updates += update_num
-            metrics["train/opt/updates"] = self._total_updates
-            self._last_metrics.update(metrics)
+            self._last_train_metrics["train/opt/updates"] = self._total_updates
+
+            import wandb
 
             if (
                 self.dreamer_config.rep_loss == "dreamer"
@@ -199,11 +217,26 @@ class DreamerAlgorithm(BaseAlgorithm):
                 >= self.video_log_every
             ):
                 self._last_video_frame = self._collected_frames
-                self._last_metrics["video/world_model"] = self._make_video(
-                    data, initial
-                )
+                if wandb.run is not None:
+                    wandb.log(
+                        {"video/world_model": self._make_video(data, initial)},
+                        step=self._collected_frames,
+                    )
 
-        return self._last_metrics
+            if (
+                self._collected_frames - self._last_agent_video_frame
+                >= self.agent_video_log_every
+            ):
+                self._last_agent_video_frame = self._collected_frames
+                if wandb.run is not None:
+                    video = self._record_agent_video()
+                    if video is not None:
+                        wandb.log(
+                            {"video/agent": video},
+                            step=self._collected_frames,
+                        )
+
+        return {**self._episode_metrics(), **self._last_train_metrics}
 
     @torch.no_grad()
     def _make_video(self, data, initial):
@@ -214,6 +247,40 @@ class DreamerAlgorithm(BaseAlgorithm):
         # (T, 3, H*3, W) channel-first uint8 — wandb.Video accepts (T, C, H, W)
         frames = (frames[0].cpu().nan_to_num(0.0).clamp(0, 1) * 255).byte().numpy()
         return wandb.Video(frames, fps=10, format="mp4")
+
+    @torch.no_grad()
+    def _record_agent_video(self):
+        import wandb
+        from torchrl.envs.utils import step_mdp
+
+        env = self._make_env()
+        td = env.reset()
+        frames = []
+
+        for _ in range(self.agent_video_max_steps):
+            img = td.get("image", default=None)
+            if img is not None:
+                frames.append(img.cpu())
+
+            td = self._eval_policy(td)
+            td = env.step(td)
+
+            if td.get(("next", "done"), default=torch.zeros(1)).bool().any():
+                img = td["next"].get("image", default=None)
+                if img is not None:
+                    frames.append(img.cpu())
+                td = env.reset()
+            else:
+                td = step_mdp(td)
+
+        env.close()
+
+        if not frames:
+            return None
+
+        video = torch.stack(frames)  # (T, C, H, W)
+        video = (video.nan_to_num(0.0).clamp(0, 1) * 255).byte().numpy()
+        return wandb.Video(video, fps=20, format="mp4")
 
     def get_policy(self) -> TensorDictModule:
         return self._eval_policy

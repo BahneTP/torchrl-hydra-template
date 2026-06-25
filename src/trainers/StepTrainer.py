@@ -72,11 +72,12 @@ class StepTrainer(BaseTrainer):
                 metrics["time/speed"] = (
                     batch_frames / total_time if total_time > 0 else 0.0
                 )
+                log_step = getattr(self.algorithm, "log_step", self._step)
                 fire_callbacks(
                     TrainerEvent.ON_STEP_END,
                     self.callbacks,
                     metrics=metrics,
-                    step=self._step,
+                    step=log_step,
                 )
 
         return metrics

@@ -52,8 +52,11 @@ def build_callbacks(
     )
     checkpoint_cb.set_trainer(trainer)
 
+    action_repeat = getattr(trainer.algorithm, "action_repeat", 1)
+    total_log_steps = int(trainer_cfg.total_frames) * action_repeat
+
     return [
-        ProgressCallback(total_steps=trainer_cfg.total_frames),
+        ProgressCallback(total_steps=total_log_steps),
         checkpoint_cb,
         *loggers,
     ]

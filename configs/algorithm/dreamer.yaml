@@ -5,6 +5,8 @@ _target_: src.algorithms.dreamer.dreamer.DreamerAlgorithm
 train_ratio: 128 # Divides Batch_Size * Batch_Length to determine the number of updates per data collection phase (how many frames till next update)
 action_repeat: ${environment.gym_kwargs.frame_skip}
 device: ${trainer.accelerator}
+agent_video_log_every: 50_000  # log agent gameplay video every N environment frames
+agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues across episode resets)
 
 buffer_config:
   batch_size: 16
