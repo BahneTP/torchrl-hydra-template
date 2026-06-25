@@ -1,8 +1,9 @@
 # @package _global_
 defaults:
+  - /algorithm/dreamer: 200m
   - override /algorithm: dreamer
   - override /environment: qbert
-  - override /logger: wandb
+  - override /logger: wandb_dreamer
   - _self_
 
 trainer:
@@ -11,16 +12,7 @@ trainer:
   seed: 42
   total_frames: 1e5 # 100k agent steps = 400k game frames (action_repeat=4)
   num_envs: 1
-  log_every_n_steps: 1000 # To make sure logs are fairly accurate
-
-model:
-  deter: 2048
-  hidden: 256
-  discrete: 16
-  depth: 16
-  units: 256
-  act: 'SiLU'
-  norm: True
+  log_every_n_steps: 1000
 
 env:
   encoder:
