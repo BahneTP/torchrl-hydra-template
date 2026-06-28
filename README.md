@@ -44,7 +44,7 @@ Two derived rules:
 | SPR / SR-SPR | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/{spr,sr_spr}/{qbert,battlezone}` |
 | BBF / SAC-BBF | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/{bbf,sac_bbf}/{qbert,battlezone}` |
 
-Additional algorithms can follow the same component split.
+Other algorithms will follow.
 
 ### Algorithm documentation
 
