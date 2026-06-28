@@ -40,6 +40,9 @@ Two derived rules:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`           |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah`   |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
+| DER       | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/der/{qbert,battlezone}` |
+| SPR / SR-SPR | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/{spr,sr_spr}/{qbert,battlezone}` |
+| BBF / SAC-BBF | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/{bbf,sac_bbf}/{qbert,battlezone}` |
 
 Other algorithms will follow.
 
@@ -54,6 +57,7 @@ results. Experimental metrics are tracked on
 | DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
 | DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
 | A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+| Atari 100K DER/SPR/BBF | [`src/algorithms/atari100k/README.md`](src/algorithms/atari100k/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:
@@ -100,6 +104,14 @@ GPU):
 
 ```shell
 python src/train.py experiment=dqn/pong
+```
+
+For Atari 100K experiments:
+
+```shell
+python src/train.py experiment=atari100k/der/qbert
+python src/train.py experiment=atari100k/spr/qbert
+python src/train.py experiment=atari100k/bbf/qbert
 ```
 
 ## Architecture

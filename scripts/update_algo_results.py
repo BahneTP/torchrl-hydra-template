@@ -181,17 +181,18 @@ def get_eval_return(run) -> tuple[float | None, str]:
         except (TypeError, ValueError):
             pass
 
-    try:
-        history = run.history(keys=["train/episode_reward"], pandas=False)
-        values = [
-            float(row["train/episode_reward"])
-            for row in history
-            if row.get("train/episode_reward") is not None
-        ]
-        if values:
-            return max(values), "best train/episode_reward"
-    except Exception:
-        pass
+    for key in ("train/raw_reward", "train/episode_reward"):
+        try:
+            history = run.history(keys=[key], pandas=False)
+            values = [
+                float(row[key])
+                for row in history
+                if row.get(key) is not None
+            ]
+            if values:
+                return max(values), f"best {key}"
+        except Exception:
+            pass
 
     return None, ""
 
