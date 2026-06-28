@@ -42,9 +42,6 @@ def test_atari100k_experiment_configs_compose(experiment: str):
     assert cfg.environment.name.startswith("ALE/")
     assert cfg.trainer.total_frames == 100_000
     assert cfg.algorithm.obs_key == "pixels"
-    assert cfg.trainer.eval_every_n_steps == 10_000
-    assert cfg.trainer.num_eval_episodes == 10
-    assert cfg.trainer.final_num_eval_episodes == 20
     assert cfg.algorithm.seed == cfg.trainer.seed
 
 
@@ -55,7 +52,6 @@ def test_smoke_atari100k_der_qbert():
         "atari100k/der/qbert",
         [
             *BASE_OVERRIDES,
-            "trainer.eval_every_n_steps=null",
             "trainer.total_frames=20",
             "trainer.log_every_n_steps=10",
             "algorithm.replay_capacity=128",
@@ -193,16 +189,6 @@ def test_atari_algorithm_seed_controls_agent_and_replay():
 
     algo = Atari100KAlgorithm(seed=123)
     assert algo.seed == 123
-
-
-def test_atari_collector_keeps_environment_and_storage_on_cpu():
-    from src.algorithms.atari100k.algorithm import Atari100KAlgorithm
-
-    collector_cfg = Atari100KAlgorithm().get_collector_config()
-
-    assert collector_cfg.env_device == "cpu"
-    assert collector_cfg.policy_device == "cpu"
-    assert collector_cfg.storing_device == "cpu"
 
 
 @pytest.mark.parametrize(

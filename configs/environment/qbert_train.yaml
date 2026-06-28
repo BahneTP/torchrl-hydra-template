@@ -15,9 +15,6 @@ transforms:
     noops: 30
     random: true
   - _target_: torchrl.envs.EndOfLifeTransform
-  - _target_: src.environments.transforms.RewardSnapshotTransform
-    in_key: reward
-    out_key: raw_reward
   - _target_: torchrl.envs.SignTransform
     in_keys: [reward]
   - _target_: torchrl.envs.ToTensorImage
@@ -28,9 +25,6 @@ transforms:
   - _target_: torchrl.envs.CatFrames
     N: 4
     dim: -3
-  - _target_: torchrl.envs.RewardSum
-    in_keys: [raw_reward]
-    out_keys: [raw_episode_reward]
   - _target_: torchrl.envs.RewardSum
   - _target_: torchrl.envs.StepCounter
     max_steps: 4500
