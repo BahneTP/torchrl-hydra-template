@@ -49,7 +49,9 @@ python src/train.py experiment=atari100k/sac_bbf/battlezone
 - Collection/evaluation are driven by the framework `StepTrainer` and TorchRL
   collector instead of the standalone `Runner`.
 - Policies read and write TorchRL `TensorDict`s.
-- Atari preprocessing is expressed as Hydra/TorchRL environment transforms.
+- Atari preprocessing is configured through Hydra environment files. The
+  no-op/action-repeat/life-loss wrappers run before TorchRL wraps the gymnasium
+  env; standard image/episode transforms remain in the transform list.
 - Logging and checkpointing use framework callbacks.
 
 The algorithmic parts that most directly affect learning are kept hard-ported.

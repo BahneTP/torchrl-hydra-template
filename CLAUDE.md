@@ -30,8 +30,8 @@ Two derived rules:
    configured with `_partial_` / nested `_target_` in `configs/algorithm/*.yaml` and
    built via **`instantiate(cfg.algorithm, device=None)`** in `train.py` / `eval.py`.
 
-Currently DQN (CartPole, Pong) and DDPG (HalfCheetah-v4) are implemented; other
-algorithms will follow.
+Currently DQN (CartPole, Pong), DDPG (HalfCheetah-v4), A2C (HalfCheetah-v4),
+and Atari 100K DER/SPR/SR-SPR/BBF/SAC-BBF experiments are implemented.
 
 ## Key patterns (quick reference)
 

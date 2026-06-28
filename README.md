@@ -44,7 +44,7 @@ Two derived rules:
 | SPR / SR-SPR | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/{spr,sr_spr}/{qbert,battlezone}` |
 | BBF / SAC-BBF | ALE/Qbert-v5, ALE/BattleZone-v5 | `experiment=atari100k/{bbf,sac_bbf}/{qbert,battlezone}` |
 
-Other algorithms will follow.
+Additional algorithms can follow the same component split.
 
 ### Algorithm documentation
 
@@ -189,13 +189,14 @@ they encode design decisions (which storage backend, what MLP shape). Their defa
 live in `src/algorithms/dqn/dqn.py` as constructor kwargs and inline lambdas. To
 swap them, edit those defaults or pass a different factory in code.
 
-`train.py` unpacks `cfg.algorithm` as `**kwargs`, so YAML values override defaults
-and CLI overrides override YAML:
+`train.py` instantiates `cfg.algorithm` recursively, so nested Hydra factories
+such as replay buffers and networks become real callables. YAML values override
+defaults and CLI overrides override YAML:
 
 ```python
-alg_kwargs = {k: v for k, v in OmegaConf.to_container(cfg.algorithm, resolve=True).items()
-              if k != "_target_"}
-algorithm = AlgClass(device=None, **alg_kwargs)
+from hydra.utils import instantiate
+
+algorithm = instantiate(cfg.algorithm, device=None)
 ```
 
 ### Environment
@@ -227,6 +228,26 @@ transforms:
     noops: 30
     random: true
   # ...
+```
+
+For Atari wrappers that must run before TorchRL wraps the gymnasium env, use
+`atari_preprocessing`. This keeps Atari-specific reset/action-repeat/life-loss
+semantics in the environment config while leaving the generic transform list
+unchanged:
+
+```yaml
+# configs/environment/atari100k_train.yaml
+name: ALE/${atari.game}-v5
+gym_backend: gymnasium
+gym_kwargs:
+  frameskip: 1
+  repeat_action_probability: 0.0
+  from_pixels: true
+  pixels_only: false
+atari_preprocessing:
+  noop_max: 30
+  frame_skip: 4
+  terminal_on_life_loss: true
 ```
 
 `make_env` in `src/environments/factory.py` instantiates each transform fresh per
@@ -287,11 +308,14 @@ configs/
 │   ├── dqn.yaml            <- DQN HPs (CartPole defaults)
 │   ├── dqn_atari.yaml      <- DQN HPs (Atari/NatureDQN defaults)
 │   ├── ddpg.yaml           <- DDPG HPs (HalfCheetah defaults)
-│   └── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   ├── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   └── atari100k_*.yaml    <- Atari 100K DER/SPR/SR-SPR/BBF/SAC-BBF HPs
 ├── environment/
 │   ├── cartpole.yaml       <- env name + transforms
 │   ├── pong_train.yaml     <- Pong with EndOfLife + Sign + VecNorm (training)
 │   ├── pong_eval.yaml      <- Pong without those transforms (evaluation)
+│   ├── atari100k_train.yaml <- generic Atari 100K training env
+│   ├── atari100k_eval.yaml  <- generic Atari 100K evaluation env
 │   └── halfcheetah.yaml    <- HalfCheetah-v4 (DoubleToFloat + InitTracker)
 ├── logger/
 │   ├── wandb.yaml
@@ -303,8 +327,10 @@ configs/
     │   └── pong.yaml       <- composed Atari Pong experiment
     ├── ddpg/
     │   └── halfcheetah.yaml <- composed DDPG HalfCheetah experiment
-    └── a2c/
-        └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    ├── a2c/
+    │   └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    └── atari100k/
+        └── {der,spr,sr_spr,bbf,sac_bbf}/{qbert,battlezone}.yaml
 ```
 
 ### Override hierarchy
