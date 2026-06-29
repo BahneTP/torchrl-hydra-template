@@ -28,5 +28,5 @@ hydra:
   run:
     dir: ${paths.log_dir}/train/runs/${now:%Y-%m-%d_%H-%M-%S}
   sweep:
-    dir: ${paths.log_dir}/train/multiruns/${now:%Y-%m-%d_%H-%M-%S}
+    dir: logs/train/multiruns/${now:%Y-%m-%d_%H-%M-%S}
     subdir: ${hydra.job.num}

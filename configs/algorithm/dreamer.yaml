@@ -11,7 +11,7 @@ agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues acr
 buffer_config:
   batch_size: 16
   batch_length: 64
-  max_size: 5e5
+  max_size: 5e6
   storage_device: cpu #! Keep Replay Buffer on CPU (Mabe use GPU on Kiel)
   device: ${trainer.accelerator}
 
