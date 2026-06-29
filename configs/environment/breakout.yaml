@@ -1,0 +1,5 @@
+defaults:
+  - atari_dreamer
+  - _self_
+
+name: ALE/Breakout-v5
