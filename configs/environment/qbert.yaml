@@ -1,5 +1,0 @@
-defaults:
-  - atari_dreamer
-  - _self_
-
-name: ALE/Qbert-v5

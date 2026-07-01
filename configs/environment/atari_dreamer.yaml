@@ -3,6 +3,7 @@
 #
 # Note: the InitTracker + RenameTransforms are Dreamer-specific (is_first, image
 # key names)
+benchmark: atari100k
 name: ???
 gym_backend: gymnasium
 gym_kwargs:

@@ -2,13 +2,18 @@
 defaults:
   - /algorithm/dreamer: 200m
   - override /algorithm: dreamer
-  - override /environment: breakout
+  - override /environment: atari_dreamer
   - override /logger: wandb_dreamer
   - _self_
 
+env_id: breakout
+
+environment:
+  name: ALE/Breakout-v5
+
 trainer:
   accelerator: gpu
-  devices: [1]
+  devices: [0]
   seed: 42
   total_frames: 1e5 # 100k agent steps = 400k game frames (action_repeat=4)
   num_envs: 1
