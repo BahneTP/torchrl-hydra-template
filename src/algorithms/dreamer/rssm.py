@@ -191,9 +191,7 @@ class RSSM(nn.Module):
             stoch, deter, logit = self.obs_step(
                 stoch, deter, action[:, i], embed[:, i], reset[:, i]
             )
-            stochs.append(
-                stoch
-            )  #! R2Dreamer had a bug: `stochs.append(stoch)` appeared twice here
+            stochs.append(stoch)
             deters.append(deter)
             logits.append(logit)
         # (B, T, S, K), (B, T, D), (B, T, S, K)

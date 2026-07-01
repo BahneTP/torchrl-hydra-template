@@ -2,41 +2,19 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from collections import deque
 from typing import Callable
-from omegaconf import DictConfig, OmegaConf, open_dict
-
-_ACCEL_TO_TORCH = {"gpu": "cuda", "mps": "mps"}
-
-OmegaConf.register_new_resolver(
-    "to_torch_device",
-    lambda accel: _ACCEL_TO_TORCH.get(str(accel), str(accel)),
-)
-
-
-def _patch_devices(cfg: DictConfig, device_str: str) -> None:
-    """Replace all device/storage_device strings recursively before passing to dreamer internals."""
-    with open_dict(cfg):
-        for k in list(cfg.keys()):
-            v = cfg[k]
-            if k == "device" and isinstance(v, str):
-                cfg[k] = device_str
-            elif isinstance(v, DictConfig):
-                _patch_devices(v, device_str)
-
+from omegaconf import DictConfig, open_dict
 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from torchrl.envs import EnvBase
+
 from src.algorithms.dreamer.buffer import Buffer
-
-from src.algorithms.base import BaseAlgorithm, TrainingState
-
-# Import the modified Dreamer class you provided
+from src.algorithms.base import BaseAlgorithm, CollectorConfig, TrainingState
 from src.algorithms.dreamer.dreamer_model import Dreamer
 
 
-class DreamerPolicy(nn.Module):  # TODO Recheck this
+class DreamerPolicy(nn.Module):
     """Wraps the Dreamer model to manage the RSSM hidden states across time steps."""
 
     def __init__(self, model: Dreamer, explore: bool = True):
@@ -91,6 +69,20 @@ class DreamerPolicy(nn.Module):  # TODO Recheck this
         return td
 
 
+def _patch_devices(cfg: DictConfig, device_str: str) -> None:
+    """Recursively replace Hydra accelerator strings with PyTorch device strings.
+
+    "gpu" is replaced with the exact device the trainer resolved (e.g. "cuda:2").
+    """
+    with open_dict(cfg):
+        for k in list(cfg.keys()):
+            v = cfg[k]
+            if k in ("device", "storage_device") and isinstance(v, str):
+                cfg[k] = device_str if v == "gpu" else v
+            elif isinstance(v, DictConfig):
+                _patch_devices(v, device_str)
+
+
 class DreamerAlgorithm(BaseAlgorithm):
     """Stateful algorithm wrapper for DreamerV3/EfficientDreamer."""
 
@@ -118,13 +110,13 @@ class DreamerAlgorithm(BaseAlgorithm):
         batch_steps = self.batch_size * self.batch_length
         self._frames_per_update = (batch_steps / self.train_ratio) * self.action_repeat
         self._next_update_target = self._frames_per_update
-        self._ep_scores: deque[float] = deque(maxlen=30)
-        self._ep_lengths: deque[float] = deque(maxlen=30)
         self._total_updates = 0
         self._last_video_frame = 0
         self._last_agent_video_frame = 0
         self.video_log_every = 50_000  # log world model video every N frames
-        self._last_train_metrics: dict[str, float] = {}
+        self._metrics_accum: dict[str, list[float]] = {}
+        self._ep_scores: list[tuple[float, int]] = []   # (score, frame_at_done)
+        self._ep_lengths: list[tuple[int, int]] = []   # (length, frame_at_done)
         self._make_env: Callable[[], EnvBase] | None = None
 
     @property
@@ -152,14 +144,6 @@ class DreamerAlgorithm(BaseAlgorithm):
         # 3. Create a Sequence-Aware Replay Buffer
         self.replay_buffer = Buffer(self.buffer_config)
 
-    def _episode_metrics(self) -> dict[str, float]:
-        if not self._ep_scores:
-            return {}
-        out: dict[str, float] = {"episode/score": max(self._ep_scores)}
-        if self._ep_lengths:
-            out["episode/length"] = self._ep_lengths[-1]
-        return out
-
     def step(self, td: TensorDict) -> dict[str, float]:
         """Receives a single frame from the StatefulTrainer and conditionally updates."""
 
@@ -170,44 +154,53 @@ class DreamerAlgorithm(BaseAlgorithm):
         transitions_added = int(td.batch_size[0]) if len(td.batch_size) > 0 else 1
         self._collected_frames += transitions_added * self.action_repeat
 
-        # Track episode completions in a rolling window for log-boundary reporting.
+        # 3. Track episode completions — store (value, frame) so each episode
+        # can be logged at its actual x-axis position rather than averaged.
         done = td.get(("next", "done"), default=None)
         if done is not None and done.bool().any():
-            mask = done.bool().reshape(-1)
-            ep_reward = td.get(("next", "episode_reward"), default=None)
-            if ep_reward is not None:
-                for score in ep_reward.reshape(-1)[mask].float().tolist():
-                    self._ep_scores.append(score)
-            ep_length = td.get(("next", "step_count"), default=None)
-            if ep_length is not None:
-                for length in ep_length.reshape(-1)[mask].float().tolist():
-                    self._ep_lengths.append(length)
+            mask = done.bool().squeeze(-1) if done.dim() > 1 else done.bool()
+            scores = td.get(("next", "episode_reward"), default=None)
+            lengths = td.get(("next", "step_count"), default=None)
+            for idx in mask.nonzero(as_tuple=True)[0]:
+                score = scores[idx].item() if scores is not None else None
+                length = lengths[idx].item() if lengths is not None else None
+                if score is not None:
+                    self._ep_scores.append((score, self._collected_frames))
+                if length is not None:
+                    self._ep_lengths.append((length, self._collected_frames))
 
-        # 3. The Minimum Viability Constraint
+        # 4. The Minimum Viability Constraint
         min_required_frames = (
             self.batch_length + 1
         ) * self.action_repeat  # At least enough frames to sample
         if self._collected_frames <= min_required_frames:
             self._next_update_target = self._collected_frames + self._frames_per_update
-            return self._episode_metrics()
+            return {}
 
-        # 4. Proportional update count — fires exactly once per step in normal
+        # 5. Proportional update count — fires exactly once per step in normal
         # operation (frames_per_batch=1), but catches up if frames_per_batch > 1.
         update_num = 0
         while self._collected_frames >= self._next_update_target:
             update_num += 1
             self._next_update_target += self._frames_per_update
 
-        # 5. Execute Backpropagation Through Time
+        # 6. Execute Backpropagation Through Time
         for _ in range(update_num):
             data, index, initial = self.replay_buffer.sample()
             (stoch, deter), _metrics = self.model.update(data, initial)
             self.replay_buffer.update(index, stoch, deter)
-            self._last_train_metrics = {f"train/{k}": v for k, v in _metrics.items()}
+            for k, v in _metrics.items():
+                val = v.item() if isinstance(v, torch.Tensor) else float(v)
+                if k.startswith("loss/"):
+                    key = f"losses/{k[5:]}"
+                elif k.startswith("opt/"):
+                    key = k
+                else:
+                    key = f"train/{k}"
+                self._metrics_accum.setdefault(key, []).append(val)
 
         if update_num > 0:
             self._total_updates += update_num
-            self._last_train_metrics["train/opt/updates"] = self._total_updates
 
             import wandb
 
@@ -236,7 +229,28 @@ class DreamerAlgorithm(BaseAlgorithm):
                             step=self._collected_frames,
                         )
 
-        return {**self._episode_metrics(), **self._last_train_metrics}
+        return {}
+
+    def pop_train_metrics(self) -> dict[str, float]:
+        """Return mean metrics accumulated since the last call, then reset.
+
+        Called by StepTrainer at log boundaries. Training losses are averaged
+        over the window. Episodes are logged individually to W&B at the frame
+        step when they actually completed, so each episode is a separate point.
+        """
+        out: dict[str, float] = {}
+        if self._metrics_accum:
+            out = {k: sum(v) / len(v) for k, v in self._metrics_accum.items()}
+            self._metrics_accum.clear()
+        out["opt/updates"] = self._total_updates
+        if self._ep_scores:
+            import wandb
+            if wandb.run is not None:
+                for (score, frame), (length, _) in zip(self._ep_scores, self._ep_lengths):
+                    wandb.log({"episode/score": score, "episode/length": length}, step=frame)
+            self._ep_scores.clear()
+            self._ep_lengths.clear()
+        return out
 
     @torch.no_grad()
     def _make_video(self, data, initial):
@@ -289,38 +303,29 @@ class DreamerAlgorithm(BaseAlgorithm):
         return self._explore_policy
 
     def _get_training_state(self) -> TrainingState:
-        # Save the raw Dreamer model parameters and optimizers
-        # You can use the `recursively_collect_optim_state_dict` tool from your utils file here!
+        from src.algorithms.dreamer.tools import recursively_collect_optim_state_dict
+
         return TrainingState(
             step=self._collected_frames,
             policy_state_dict=self.model.state_dict(),
-            optimizer_state_dict=self.model._optimizer.state_dict(),
-            extra={"collected_frames": self._collected_frames},
+            optimizer_state_dict=recursively_collect_optim_state_dict(self.model),
+            extra={"scheduler": self.model._scheduler.state_dict()},
         )
 
     def _load_training_state(self, state: TrainingState) -> None:
+        from src.algorithms.dreamer.tools import recursively_load_optim_state_dict
+
         self.model.load_state_dict(state.policy_state_dict)
-        self.model._optimizer.load_state_dict(state.optimizer_state_dict)
-        if state.extra and "collected_frames" in state.extra:
-            self._collected_frames = int(state.extra["collected_frames"])
-            self._last_train_frame = self._collected_frames
-            self._next_update_target = self._collected_frames + self._frames_per_update
+        recursively_load_optim_state_dict(self.model, state.optimizer_state_dict)
+        if state.extra and "scheduler" in state.extra:
+            self.model._scheduler.load_state_dict(state.extra["scheduler"])
+        self._collected_frames = state.step
+        self._next_update_target = self._collected_frames + self._frames_per_update
 
-    def get_collector_config(self) -> dict[str, any]:
-        """Provides configuration parameters governing the environment collection loop.
-
-        For Dreamer, this enforces single-step (or single-microbatch) data
-        ingestion to synchronize perfectly with the model's training ratio.
-        """
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            # Collect exactly 1 agent step before relinquishing control to the algorithm
-            frames_per_batch=1,
-            # Initialization stochasticity is handled natively by the NoopResetEnv transform;
-            # the collector does not need to intervene.
+    def get_collector_config(self) -> CollectorConfig:
+        """One collector call = one gradient update. Adapts to any train_ratio."""
+        return CollectorConfig(
+            frames_per_batch=int(self._frames_per_update / self.action_repeat),
             init_random_frames=0,
-            # A value of 0 dictates that the collector relies strictly on the StepCounter
-            # transform to manage episodic truncation boundaries.
-            max_frames_per_traj=0,
+            max_frames_per_traj=-1,  # no collector-forced resets; StepCounter owns truncation
         )

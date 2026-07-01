@@ -64,7 +64,7 @@ class Dreamer(nn.Module):
             config.actor.dist = config.actor.dist.multi_disc
             self.act_discrete = True
             print("Using multi-discrete action space", flush=True)
-        elif hasattr(act_space, "n"):
+        elif hasattr(act_space, "n"):  #! R2Dreamer checked `hasattr(act_space, "discrete")`; TorchRL DiscreteTensorSpec exposes `.n` not `.discrete`
             config.actor.dist = config.actor.dist.disc
             self.act_discrete = True
             print("Using discrete action space", flush=True)
@@ -356,7 +356,7 @@ class Dreamer(nn.Module):
         if self.rep_loss == "dreamerpro":
             self.ema_update()
         metrics = {}
-        with autocast(device_type=self.device.type, dtype=torch.float16):
+        with autocast(device_type=self.device.type, dtype=torch.bfloat16):  #! R2Dreamer used float16; bfloat16 has wider exponent range (less overflow risk) and is native on Ampere+ GPUs
             (stoch, deter), mets = self._cal_grad(p_data, initial)
         self._scaler.unscale_(self._optimizer)  # unscale grads in params
         if (

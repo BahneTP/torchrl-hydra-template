@@ -9,6 +9,7 @@ agent_video_log_every: 50_000  # log agent gameplay video every N environment fr
 agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues across episode resets)
 
 buffer_config:
+  num_envs: ${trainer.num_envs}  # must match trainer.num_envs
   batch_size: 16
   batch_length: 64
   max_size: 5e6

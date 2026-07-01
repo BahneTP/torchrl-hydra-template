@@ -221,10 +221,10 @@ class MultiDecoder(nn.Module):
         # (B, T, S, K), (B, T, D)
         dists = {}
         if self.cnn_shapes:
-            split_sizes = [v[-1] for v in self.cnn_shapes.values()]
-            # (B, T, H, W, C_sum)
+            split_sizes = [v[0] for v in self.cnn_shapes.values()]  #! R2Dreamer used v[-1] (channel-last C); channel-first C is dim 0
+            # (B, T, C_sum, H, W) — channel-first  #! was (B, T, H, W, C_sum) in R2Dreamer
             outputs = self._cnn(stoch, deter)
-            outputs = torch.split(outputs, split_sizes, -1)
+            outputs = torch.split(outputs, split_sizes, -3)  #! was dim=-1 (channel-last); channel-first C is dim -3 for (B,T,C,H,W)
             dists.update(
                 {
                     key: self._image_dist(output)

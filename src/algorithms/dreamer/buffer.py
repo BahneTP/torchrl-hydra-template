@@ -16,6 +16,7 @@ class Buffer:
         self.storage_device = torch.device(config.storage_device)
         self.batch_size = int(config.batch_size)
         self.batch_length = int(config.batch_length)
+        self.num_envs = int(getattr(config, "num_envs", 1))  #! R2Dreamer had `self.num_eps = 0` (unused episode counter); replaced with num_envs for episode-ID stamping
         self._buffer = ReplayBuffer(
             #! Flat (ndim=1) storage: every transition occupies one slot in a 1-D
             # sequence.  The previous ndim=2 design stored each transition as a
@@ -36,12 +37,16 @@ class Buffer:
         )
 
     def add_transition(self, data):
-        #! data: TensorDict with batch_size (num_envs,) from the Collector.
-        # Stamp each step with a constant env index as the "episode" key so that
-        # SliceSampler(traj_key="episode") can group env-i's transitions into one
-        # contiguous stream and sample freely across game-over boundaries.
-        num_envs = data.batch_size[0] if data.batch_size else 1
-        data.set("episode", torch.arange(num_envs, dtype=torch.int32))
+        n_frames = data.batch_size[0] if data.batch_size else 1  #! R2Dreamer received single frames (B=num_envs); now frames_per_batch may be > num_envs
+        data = data.copy()  #! copy to avoid mutating the collector's TensorDict
+        #! Store image as uint8 to save 4x memory
+        #! Converted back to float32 in sample() before the model sees it.
+        if "image" in data.keys():
+            data["image"] = (data["image"] * 255).byte()
+        #! frames_per_batch may exceed num_envs (multiple steps per env per call).
+        #! Tile env indices so each step is stamped with the correct stream id.
+        episode_ids = torch.arange(self.num_envs, dtype=torch.int32).repeat(n_frames // self.num_envs)
+        data.set("episode", episode_ids)
         self._buffer.extend(data)
 
     def sample(self):
@@ -54,6 +59,8 @@ class Buffer:
             sample_td = sample_td.pin_memory().to(self.device, non_blocking=True)
         elif src_dev != self.device:
             sample_td = sample_td.to(self.device, non_blocking=True)
+        if "image" in sample_td.keys():  #! restore float32 for the model
+            sample_td["image"] = sample_td["image"].float() / 255.0
         #! First timestep of each sequence is used only to warm-start RSSM state.
         initial = (sample_td["stoch"][:, 0], sample_td["deter"][:, 0])
         data = sample_td[:, 1:]
