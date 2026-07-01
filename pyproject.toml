@@ -19,7 +19,7 @@ dependencies = [
     "autorom[accept-rom-license]>=0.6.1",
     "torchvision>=0.18.0",  # Atari pixel transforms (Resize)
     # Logging
-    "wandb>=0.17.0",
+    "wandb[media]>=0.17.0",
     "tensorboard>=2.16.0",
     # Utilities
     "tqdm>=4.66.0",
