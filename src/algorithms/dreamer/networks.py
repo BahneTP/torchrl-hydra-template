@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-import src.algorithms.dreamer.distributions as dists  #! R2Dreamer used bare `import distributions as dists`
+import src.components.distributions as dists  #! R2Dreamer used bare `import distributions as dists`
 from src.algorithms.dreamer.tools import weight_init_  #!
 
 
@@ -221,10 +221,14 @@ class MultiDecoder(nn.Module):
         # (B, T, S, K), (B, T, D)
         dists = {}
         if self.cnn_shapes:
-            split_sizes = [v[0] for v in self.cnn_shapes.values()]  #! R2Dreamer used v[-1] (channel-last C); channel-first C is dim 0
+            split_sizes = [
+                v[0] for v in self.cnn_shapes.values()
+            ]  #! R2Dreamer used v[-1] (channel-last C); channel-first C is dim 0
             # (B, T, C_sum, H, W) — channel-first  #! was (B, T, H, W, C_sum) in R2Dreamer
             outputs = self._cnn(stoch, deter)
-            outputs = torch.split(outputs, split_sizes, -3)  #! was dim=-1 (channel-last); channel-first C is dim -3 for (B,T,C,H,W)
+            outputs = torch.split(
+                outputs, split_sizes, -3
+            )  #! was dim=-1 (channel-last); channel-first C is dim -3 for (B,T,C,H,W)
             dists.update(
                 {
                     key: self._image_dist(output)
@@ -269,7 +273,7 @@ class ConvEncoder(nn.Module):
             )
             layers.append(nn.MaxPool2d(2, 2))
             if config.norm:
-                layers.append(RMSNorm2D(depth, eps=1e-04, dtype=torch.float32))
+                layers.append(RMSNorm2D(depth, eps=1e-04, dtype=torch.bfloat16))
             layers.append(act())
             in_dim = depth
             h, w = h // 2, w // 2
@@ -310,12 +314,12 @@ class ConvDecoder(nn.Module):
         self.sp0 = BlockLinear(deter, u, g)
         self.sp1 = nn.Sequential(
             nn.Linear(flat_stoch, 2 * self.units),
-            nn.RMSNorm(2 * self.units, eps=1e-04, dtype=torch.float32),
+            nn.RMSNorm(2 * self.units, eps=1e-04, dtype=torch.bfloat16),
             act(),
         )
         self.sp2 = nn.Linear(2 * self.units, math.prod(self.min_shape))
         self.sp_norm = nn.Sequential(
-            nn.RMSNorm(self.depths[-1], eps=1e-04, dtype=torch.float32), act()
+            nn.RMSNorm(self.depths[-1], eps=1e-04, dtype=torch.bfloat16), act()
         )
         layers = []
         in_dim = self.depths[-1]
@@ -324,7 +328,7 @@ class ConvDecoder(nn.Module):
             layers.append(
                 Conv2dSamePad(in_dim, depth, self.kernel_size, stride=1, bias=True)
             )
-            layers.append(RMSNorm2D(depth, eps=1e-04, dtype=torch.float32))
+            layers.append(RMSNorm2D(depth, eps=1e-04, dtype=torch.bfloat16))
             layers.append(act())
             in_dim = depth
         layers.append(nn.Upsample(scale_factor=2, mode="nearest"))
@@ -397,7 +401,7 @@ class MLP(nn.Module):
             )
             self.layers.add_module(
                 f"{config.name}_norm{i}",
-                nn.RMSNorm(config.units, eps=1e-04, dtype=torch.float32),
+                nn.RMSNorm(config.units, eps=1e-04, dtype=torch.bfloat16),
             )
             self.layers.add_module(f"{config.name}_act{i}", act())
             inp_dim = config.units

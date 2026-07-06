@@ -12,14 +12,14 @@ import torch
 import torch.nn.functional as F
 from tensordict import TensorDict
 from torch import nn
-from torch.amp import GradScaler, autocast
+from torch.amp import autocast
 from torch.optim.lr_scheduler import LambdaLR
 
 import src.algorithms.dreamer.networks as networks  #! R2Dreamer used bare `import networks` (single-file script)
 import src.algorithms.dreamer.rssm as rssm  #!
 import src.algorithms.dreamer.tools as tools  #!
 from src.algorithms.dreamer.networks import Projector  #!
-from src.algorithms.dreamer.optim import LaProp, clip_grad_agc_  #!
+from src.components.optim import LaProp, clip_grad_agc_  #!
 from src.algorithms.dreamer.tools import to_f32  #!
 
 
@@ -64,7 +64,9 @@ class Dreamer(nn.Module):
             config.actor.dist = config.actor.dist.multi_disc
             self.act_discrete = True
             print("Using multi-discrete action space", flush=True)
-        elif hasattr(act_space, "n"):  #! R2Dreamer checked `hasattr(act_space, "discrete")`; TorchRL DiscreteTensorSpec exposes `.n` not `.discrete`
+        elif hasattr(
+            act_space, "n"
+        ):  #! R2Dreamer checked `hasattr(act_space, "discrete")`; TorchRL DiscreteTensorSpec exposes `.n` not `.discrete`
             config.actor.dist = config.actor.dist.disc
             self.act_discrete = True
             print("Using discrete action space", flush=True)
@@ -176,7 +178,6 @@ class Dreamer(nn.Module):
             betas=(config.beta1, config.beta2),
             eps=config.eps,
         )
-        self._scaler = GradScaler()
 
         def lr_lambda(step):
             if config.warmup:
@@ -189,7 +190,7 @@ class Dreamer(nn.Module):
         self.clone_and_freeze()
         if config.compile:
             print("Compiling update function with torch.compile...", flush=True)
-            self._cal_grad = torch.compile(self._cal_grad, mode="reduce-overhead")
+            self._cal_grad = torch.compile(self._cal_grad, mode="default")
 
     def _update_slow_target(self):
         """Update slow-moving value target network."""
@@ -276,7 +277,7 @@ class Dreamer(nn.Module):
     def act(self, obs, state, eval=False):
         """Policy inference step."""
         # obs: dict of (B, *), state: (stoch: (B, S, K), deter: (B, D), prev_action: (B, A))
-        torch.compiler.cudagraph_mark_step_begin()
+
         p_obs = self.preprocess(obs)
         # (B, E)
         embed = self._frozen_encoder(p_obs)
@@ -309,7 +310,7 @@ class Dreamer(nn.Module):
 
     @torch.no_grad()
     def video_pred(self, data, initial):
-        torch.compiler.cudagraph_mark_step_begin()
+
         p_data = self.preprocess(data)
         return self._video_pred(p_data, initial)
 
@@ -350,15 +351,16 @@ class Dreamer(nn.Module):
         self, data: TensorDict, initial: tuple[torch.Tensor, torch.Tensor]
     ):  #! R2Dreamer took `replay_buffer` and sampled inside; we receive data/initial from the caller
         """Perform one optimization step on a given sequence batch."""
-        torch.compiler.cudagraph_mark_step_begin()
+
         p_data = self.preprocess(data)
         self._update_slow_target()
         if self.rep_loss == "dreamerpro":
             self.ema_update()
         metrics = {}
-        with autocast(device_type=self.device.type, dtype=torch.bfloat16):  #! R2Dreamer used float16; bfloat16 has wider exponent range (less overflow risk) and is native on Ampere+ GPUs
+        with autocast(
+            device_type=self.device.type, dtype=torch.bfloat16
+        ):  #! R2Dreamer used float16; bfloat16 has wider exponent range (less overflow risk) and is native on Ampere+ GPUs
             (stoch, deter), mets = self._cal_grad(p_data, initial)
-        self._scaler.unscale_(self._optimizer)  # unscale grads in params
         if (
             self.rep_loss == "dreamerpro"
             and self._ema_updates < self.freeze_prototypes_iters
@@ -374,14 +376,12 @@ class Dreamer(nn.Module):
             mets["opt/grad_norm"] = grad_norm
             mets["opt/grad_rms"] = grad_rms
         self._agc(self._named_params.values())  # clipping
-        self._scaler.step(self._optimizer)  # update params
-        self._scaler.update()  # adjust scale
+        self._optimizer.step()
         self._scheduler.step()  # increment scheduler
         self._optimizer.zero_grad(set_to_none=True)  # reset grads
         mets["opt/lr"] = self._scheduler.get_last_lr()[
             0
         ]  #! R2Dreamer used deprecated get_lr()
-        mets["opt/grad_scale"] = self._scaler.get_scale()
         if self._log_grads:
             updates = [
                 (new - old)
@@ -489,7 +489,9 @@ class Dreamer(nn.Module):
             )  #! R2Dreamer used data["reward"]; TorchRL stores reward in next step
         )
         #! TorchRL stores terminal signals under "next" — same nesting as reward (line 488).
-        cont = 1.0 - to_f32(data["next", "terminated"])  #! R2Dreamer used data["is_terminal"]
+        cont = 1.0 - to_f32(
+            data["next", "terminated"]
+        )  #! R2Dreamer used data["is_terminal"]
         losses["con"] = torch.mean(-self.cont(feat).log_prob(cont))
         # log
         metrics["dyn_entropy"] = torch.mean(self.rssm.get_dist(prior_logit).entropy())
@@ -591,7 +593,7 @@ class Dreamer(nn.Module):
         metrics.update(tools.tensorstats(slow_value, "slow_value_replay"))
 
         total_loss = sum([v * self._loss_scales[k] for k, v in losses.items()])
-        self._scaler.scale(total_loss).backward()
+        total_loss.backward()
 
         metrics.update({f"loss/{name}": loss for name, loss in losses.items()})
         metrics.update({"opt/loss": total_loss})
