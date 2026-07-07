@@ -45,18 +45,20 @@ def build_callbacks(
     from src.callbacks.checkpoint import CheckpointCallback
     from src.callbacks.progress import ProgressCallback
 
-    checkpoint_cb = CheckpointCallback(
-        save_dir=checkpoint_cfg.save_dir,
-        save_every_n_steps=checkpoint_cfg.save_every_n_steps,
-        save_last=checkpoint_cfg.save_last,
-    )
-    checkpoint_cb.set_trainer(trainer)
+    checkpoint_cb = None
+    if checkpoint_cfg.get("enabled", True):
+        checkpoint_cb = CheckpointCallback(
+            save_dir=checkpoint_cfg.save_dir,
+            save_every_n_steps=checkpoint_cfg.save_every_n_steps,
+            save_last=checkpoint_cfg.save_last,
+        )
+        checkpoint_cb.set_trainer(trainer)
 
     action_repeat = getattr(trainer.algorithm, "action_repeat", 1)
     total_log_steps = int(trainer_cfg.total_frames) * action_repeat
 
-    return [
-        ProgressCallback(total_steps=total_log_steps),
-        checkpoint_cb,
-        *loggers,
-    ]
+    callbacks = [ProgressCallback(total_steps=total_log_steps)]
+    if checkpoint_cb is not None:
+        callbacks.append(checkpoint_cb)
+    callbacks.extend(loggers)
+    return callbacks
