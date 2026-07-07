@@ -9,9 +9,13 @@ from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from torchrl.envs import EnvBase
 
+from hydra.utils import get_class
+
 from src.algorithms.dreamer.buffer import Buffer
 from src.algorithms.base import BaseAlgorithm, CollectorConfig, TrainingState
-from src.algorithms.dreamer.dreamer_model import Dreamer
+from src.algorithms.dreamer.model import (
+    DreamerV3,
+)  # default; overridden by dreamer_config._target_
 
 
 class DreamerPolicy(nn.Module):
@@ -96,6 +100,9 @@ class DreamerAlgorithm(BaseAlgorithm):
         agent_video_log_every: int = 50_000,
         agent_video_max_steps: int = 200,
     ) -> None:
+        # Resolve model class from dreamer_config._target_
+        target = dreamer_config.get("_target_", None)
+        self._model_cls = get_class(target) if target else DreamerV3
         super().__init__(device)
         self.dreamer_config = dreamer_config
         self.buffer_config = buffer_config
@@ -115,8 +122,8 @@ class DreamerAlgorithm(BaseAlgorithm):
         self._last_agent_video_frame = 0
         self.video_log_every = 50_000  # log world model video every N frames
         self._metrics_accum: dict[str, list[float]] = {}
-        self._ep_scores: list[tuple[float, int]] = []   # (score, frame_at_done)
-        self._ep_lengths: list[tuple[int, int]] = []   # (length, frame_at_done)
+        self._ep_scores: list[tuple[float, int]] = []  # (score, frame_at_done)
+        self._ep_lengths: list[tuple[int, int]] = []  # (length, frame_at_done)
         self._make_env: Callable[[], EnvBase] | None = None
 
     @property
@@ -134,8 +141,10 @@ class DreamerAlgorithm(BaseAlgorithm):
         _patch_devices(self.dreamer_config, device_str)
         _patch_devices(self.buffer_config, device_str)
 
-        # 1. Instantiate the raw mathematical engine
-        self.model = Dreamer(self.dreamer_config, obs_space, act_space).to(self.device)
+        # 1. Instantiate the model (class selected via dreamer_config._target_)
+        self.model = self._model_cls(self.dreamer_config, obs_space, act_space).to(
+            self.device
+        )
 
         # 2. Instantiate the Policy Wrappers
         self._explore_policy = DreamerPolicy(self.model, explore=True).to(self.device)
@@ -205,7 +214,7 @@ class DreamerAlgorithm(BaseAlgorithm):
             import wandb
 
             if (
-                self.dreamer_config.rep_loss == "dreamer"
+                hasattr(self.model, "decoder")
                 and self._collected_frames - self._last_video_frame
                 >= self.video_log_every
             ):
@@ -245,9 +254,14 @@ class DreamerAlgorithm(BaseAlgorithm):
         out["opt/updates"] = self._total_updates
         if self._ep_scores:
             import wandb
+
             if wandb.run is not None:
-                for (score, frame), (length, _) in zip(self._ep_scores, self._ep_lengths):
-                    wandb.log({"episode/score": score, "episode/length": length}, step=frame)
+                for (score, frame), (length, _) in zip(
+                    self._ep_scores, self._ep_lengths
+                ):
+                    wandb.log(
+                        {"episode/score": score, "episode/length": length}, step=frame
+                    )
             self._ep_scores.clear()
             self._ep_lengths.clear()
         return out

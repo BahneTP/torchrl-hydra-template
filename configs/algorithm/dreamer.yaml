@@ -1,4 +1,5 @@
 _target_: src.algorithms.dreamer.dreamer.DreamerAlgorithm
+_recursive_: false   # dreamer_config has _target_ but is passed as DictConfig, not instantiated here
 
 
 # Wrapper Parameters (DreamerAlgorithm)
@@ -19,6 +20,7 @@ buffer_config:
 
 # Inner Engine Parameters (Dreamer)
 dreamer_config:
+  _target_: src.algorithms.dreamer.model.DreamerV3
   act_entropy: 3e-4
   kl_free: 1.0
   imag_horizon: 15
@@ -27,9 +29,6 @@ dreamer_config:
   compile: True
   log_grads: False
   device: ${trainer.accelerator}
-  
-  # r2dreamer: Barlow Twins (decoder-free). Use "dreamer" for standard DreamerV3 reconstruction.
-  rep_loss: "dreamer"
 
   lr: 4e-5
   agc: 0.3
@@ -41,41 +40,25 @@ dreamer_config:
   slow_target_update: 1
   slow_target_fraction: 0.02
 
-  # Loss scales from R2Dreamer paper Table 2
+  # Loss scales — set to 0 to fully disable a loss and its associated module.
+  # recon > 0  → decoder is built (DreamerV3 reconstruction)
+  # barlow > 0 or infonce > 0 → projector is built (R2Dreamer contrastive)
+  # swav > 0 or temp > 0      → prototypes are built (DreamerPro)
   loss_scales:
-    recon: 1.0     # unused in r2dreamer mode (no decoder)
+    recon: 1.0     # image reconstruction (DreamerV3)
     rew: 1.0
     con: 1.0
-    dyn: 1.0       # βdyn=1 per paper (was 0.5)
+    dyn: 1.0
     rep: 0.1
     policy: 1.0
     value: 1.0
     repval: 0.3
-    barlow: 0.05   # βBT=0.05 per paper (was 0.0)
-    infonce: 0.0
-    swav: 0.0
-    temp: 0.0
-    norm: 0.0
+    barlow: 0.0    # Barlow Twins (R2Dreamer)
+    infonce: 0.0   # InfoNCE contrastive (R2Dreamer)
+    swav: 0.0      # SwAV prototype obs loss (DreamerPro)
+    temp: 0.0      # temporal prototype feat loss (DreamerPro)
+    norm: 0.0      # projection norm regularisation (DreamerPro)
     
-  # Unused configurations maintained for structural integrity 
-  r2dreamer:
-    lambd: 5e-4
-    
-  dreamer_pro:
-    warm_up: 1
-    num_prototypes: 2500
-    proto_dim: 32
-    temperature: 0.1
-    sinkhorn_eps: 0.05
-    sinkhorn_iters: 3
-    ema_update_every: 1
-    ema_update_fraction: 0.05
-    freeze_prototypes_iters: 10000
-    aug:
-      max_delta: 3.0
-      same_across_time: True
-      bilinear: True
-
   rssm:
     stoch: 32
     deter: ${model.deter}
