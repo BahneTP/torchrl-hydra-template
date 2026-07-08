@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from collections import deque
 from typing import Callable
 from omegaconf import DictConfig, open_dict
 
@@ -122,8 +123,10 @@ class DreamerAlgorithm(BaseAlgorithm):
         self._last_agent_video_frame = 0
         self.video_log_every = 50_000  # log world model video every N frames
         self._metrics_accum: dict[str, list[float]] = {}
-        self._ep_scores: list[tuple[float, int]] = []  # (score, frame_at_done)
-        self._ep_lengths: list[tuple[int, int]] = []  # (length, frame_at_done)
+        self._ep_scores: list[tuple[float, int]] = []   # (score, frame_at_done) — cleared each log window
+        self._ep_lengths: list[tuple[int, int]] = []   # (length, frame_at_done) — cleared each log window
+        self._all_ep_scores: list[tuple[int, float]] = []  # (frame, score) — persistent for last-10pct
+        self._recent_scores: deque = deque(maxlen=10)       # rolling last-10-episode mean
         self._make_env: Callable[[], EnvBase] | None = None
 
     @property
@@ -140,6 +143,16 @@ class DreamerAlgorithm(BaseAlgorithm):
         device_str = str(self.device)
         _patch_devices(self.dreamer_config, device_str)
         _patch_devices(self.buffer_config, device_str)
+
+        # Give video metrics their own x-axis (video/frame = game frames) so
+        # that video wandb.log calls don't advance the global step and conflict
+        # with deferred per-episode logging at historical frame positions.
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.define_metric("video/*", step_metric="video/frame")
+        except Exception:
+            pass
 
         # 1. Instantiate the model (class selected via dreamer_config._target_)
         self.model = self._model_cls(self.dreamer_config, obs_space, act_space).to(
@@ -175,6 +188,8 @@ class DreamerAlgorithm(BaseAlgorithm):
                 length = lengths[idx].item() if lengths is not None else None
                 if score is not None:
                     self._ep_scores.append((score, self._collected_frames))
+                    self._all_ep_scores.append((self._collected_frames, score))
+                    self._recent_scores.append(score)
                 if length is not None:
                     self._ep_lengths.append((length, self._collected_frames))
 
@@ -220,10 +235,10 @@ class DreamerAlgorithm(BaseAlgorithm):
             ):
                 self._last_video_frame = self._collected_frames
                 if wandb.run is not None:
-                    wandb.log(
-                        {"video/world_model": self._make_video(data, initial)},
-                        step=self._collected_frames,
-                    )
+                    wandb.log({
+                        "video/world_model": self._make_video(data, initial),
+                        "video/frame": self._collected_frames,
+                    })
 
             if (
                 self._collected_frames - self._last_agent_video_frame
@@ -233,10 +248,10 @@ class DreamerAlgorithm(BaseAlgorithm):
                 if wandb.run is not None:
                     video = self._record_agent_video()
                     if video is not None:
-                        wandb.log(
-                            {"video/agent": video},
-                            step=self._collected_frames,
-                        )
+                        wandb.log({
+                            "video/agent": video,
+                            "video/frame": self._collected_frames,
+                        })
 
         return {}
 
@@ -252,6 +267,8 @@ class DreamerAlgorithm(BaseAlgorithm):
             out = {k: sum(v) / len(v) for k, v in self._metrics_accum.items()}
             self._metrics_accum.clear()
         out["opt/updates"] = self._total_updates
+        if self._recent_scores:
+            out["episode/score_mean_last10ep"] = sum(self._recent_scores) / len(self._recent_scores)
         if self._ep_scores:
             import wandb
 
@@ -264,6 +281,27 @@ class DreamerAlgorithm(BaseAlgorithm):
                     )
             self._ep_scores.clear()
             self._ep_lengths.clear()
+        return out
+
+    def finalize_metrics(self) -> dict[str, float]:
+        """End-of-run summary metrics mirroring DreamerCDP's eval block.
+
+        Logs ``eval/score_last``, ``eval/score_mean_last10pct``, and
+        ``eval/score_n_last10pct`` — the last episode score and the mean over
+        episodes that completed in the final 10 % of total training frames.
+        """
+        if not self._all_ep_scores:
+            return {}
+        total_frames = max(f for f, _ in self._all_ep_scores)
+        cutoff = total_frames * 0.9
+        last10pct = [sc for f, sc in self._all_ep_scores if f >= cutoff]
+        out: dict[str, float] = {"eval/score_last": self._all_ep_scores[-1][1]}
+        if last10pct:
+            out["eval/score_mean_last10pct"] = sum(last10pct) / len(last10pct)
+            out["eval/score_n_last10pct"] = float(len(last10pct))
+        import wandb
+        if wandb.run is not None:
+            wandb.log(out, step=self._collected_frames)
         return out
 
     @torch.no_grad()

@@ -84,6 +84,9 @@ class StepTrainer(BaseTrainer):
                     step=log_step,
                 )
 
+        if hasattr(self.algorithm, "finalize_metrics"):
+            self.algorithm.finalize_metrics()
+
         return metrics
 
 
