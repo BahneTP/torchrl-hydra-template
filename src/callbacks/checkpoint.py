@@ -20,7 +20,7 @@ class CheckpointCallback:
         self,
         save_dir: str | Path,
         save_every_n_steps: int,
-        save_last: bool = True,
+        save_last: bool = False,
     ) -> None:
         self.save_dir = Path(save_dir)
         self.save_every_n_steps = save_every_n_steps
