@@ -2,34 +2,46 @@
 
 **Paper:** Hafner et al. (2025), [*Mastering Diverse Control Tasks through World Models*](https://www.nature.com/articles/s41586-025-08744-2).
 
-Model-based RL that learns a **world model** in a compact latent space and derives
-both actor and critic entirely from **imagined** rollouts — never from real environment
-rewards directly. Scales across continuous and discrete tasks using a single set of
-hyperparameters.
+Model-based RL that learns a **world model** in a compact latent space and derives both
+actor and critic entirely from **imagined** rollouts. Scales across continuous and discrete control with a single hyperparameter set.
 
-This implementation is based on [R2Dreamer](https://github.com/NM512/r2dreamer), which
-extends DreamerV3 with Barlow Twins self-supervised representation learning
-(decoder-free mode). Standard DreamerV3 reconstruction loss is available via
-`rep_loss: dreamer`.
+The core implementation is based on the [NM512/r2dreamer](https://github.com/NM512/r2dreamer)
+codebase, adapted to the TorchRL + Hydra structure of this template.
+
+This implementation also supports two decoder-free variants:
+Morihira et al. (2026), [*R2-Dreamer: Redundancy-Reduced World Models without Decoders or Augmentation*](https://arxiv.org/abs/2603.18202) (Barlow Twins auxiliary loss) and
+Deng et al. (2021), [*DreamerPro: Reconstruction-Free Model-Based Reinforcement Learning with Prototypical Representations*](https://arxiv.org/abs/2110.14565) (prototypical assignment via Sinkhorn-Knopp OT).
+Select the variant via `algorithm=r2dreamer` or `algorithm=dreamerpro`.
 
 ## Key ideas
 
 - **Recurrent State Space Model (RSSM).** A GRU-based world model maintains a hybrid
-  latent state $(h_t, z_t)$ where $h_t$ is a deterministic recurrent belief and $z_t$
-  is a discrete stochastic categorical variable. The prior predicts $z_t$ from $h_t$;
-  the posterior refines $z_t$ using the current observation.
-- **KL balancing.** The RSSM KL loss is split into a representation term (posterior ↔
-  prior) and a dynamics term (prior ↔ posterior), scaled with a `kl_free` free-nats
-  threshold so early exploration is not penalised.
-- **Barlow Twins mode** (`rep_loss: r2dreamer`). Decoder-free variant: the encoder is
-  jointly trained with a Barlow Twins loss between two augmented views, replacing
-  reconstruction. Uses `loss_scales.barlow` to weight the auxiliary term.
-- Add more
+  latent state $(h_t, z_t)$: $h_t$ is a deterministic recurrent belief, $z_t$ is a
+  discrete stochastic categorical variable. The prior predicts $z_t$ from $h_t$; the
+  posterior refines $z_t$ using the current observation.
+- **KL balancing.** The KL loss is split into a dynamics term (prior ↔ sg-posterior)
+  and a representation term (posterior ↔ sg-prior), each weighted separately with a
+  `kl_free` free-nats floor to avoid penalising early exploration.
+- **Symlog + two-hot regression.** Reward and value targets are mapped through
+  $\text{symlog}(x) = \text{sign}(x)\ln(|x|+1)$ and predicted as a categorical
+  distribution over a fixed bucket grid, making critics robust to large reward scales
+  without any normalisation.
+- **λ-returns in imagination.** Actor-critic targets blend Monte-Carlo and TD via
+  $\lambda$: $\lambda=1$ recovers full returns, $\lambda=0$ recovers 1-step TD.
+- **Entropy-regularised actor.** An `act_entropy` bonus discourages premature
+  commitment during imagination rollouts.
+
+**Decoder-free variants** replace pixel reconstruction (`loss_scales.recon`) with
+auxiliary self-supervised losses on the encoder latents:
+**R2-Dreamer** uses a **Barlow Twins** cross-correlation loss between projected RSSM
+features and encoder embeddings (no decoder, no data augmentation needed).
+**DreamerPro** uses **SwAV-style prototypical assignment** with Sinkhorn-Knopp OT and
+an EMA target encoder trained on randomly-translated observations.
 
 ## Pseudocode
 
-1. Initialise RSSM, encoder, decoder/Barlow head, reward head, continuation head,
-   actor, critic.
+1. Initialise RSSM, encoder, decoder/Barlow/prototype head, reward head,
+   continuation head, actor, critic.
 2. Initialise replay buffer $\mathcal{D}$ (ring buffer, stores raw transitions).
 
 **For each environment step:**
@@ -42,8 +54,8 @@ extends DreamerV3 with Barlow Twins self-supervised representation learning
 
 6. Sample a sequence batch $(B=16, T=64)$ from $\mathcal{D}$.
 7. **World model update:** encode sequences → RSSM forward pass →
-   compute KL + reconstruction (or Barlow Twins) + reward + continuation losses →
-   update encoder + RSSM + heads.
+   compute KL + representation loss (reconstruction / Barlow / prototypical) + reward +
+   continuation losses → update encoder + RSSM + heads.
 8. **Actor-critic update:** unroll `imag_horizon=15` imagination steps from posterior
    states → compute λ-returns → update actor (entropy-regularised policy gradient) +
    critic (two-hot symexp regression).
@@ -53,17 +65,32 @@ extends DreamerV3 with Barlow Twins self-supervised representation learning
 
 | Resource | Path |
 |----------|------|
-| Algorithm wrapper | [`dreamer.py`](dreamer.py) |
-| World model + update logic | [`dreamer_model.py`](dreamer_model.py) |
-| Sequence replay buffer | [`buffer.py`](buffer.py) |
+| Algorithm wrapper + policy | [`dreamer.py`](dreamer.py) |
+| Base DreamerV3 model | [`model/dreamerv3.py`](model/dreamerv3.py) |
+| R2Dreamer extension | [`model/r2dreamer.py`](model/r2dreamer.py) |
+| DreamerPro extension | [`model/dreamerpro.py`](model/dreamerpro.py) |
+| RSSM | [`rssm.py`](rssm.py) |
 | Network modules | [`networks.py`](networks.py) |
-| Algorithm HPs | [`configs/algorithm/dreamer.yaml`](../../../configs/algorithm/dreamer.yaml) |
+| Sequence replay buffer | [`buffer.py`](buffer.py) |
+| Utility functions | [`tools.py`](tools.py) |
+| Algorithm config (DreamerV3) | [`configs/algorithm/dreamer.yaml`](../../../configs/algorithm/dreamer.yaml) |
+| Algorithm config (R2-Dreamer) | [`configs/algorithm/r2dreamer.yaml`](../../../configs/algorithm/r2dreamer.yaml) |
+| Algorithm config (DreamerPro) | [`configs/algorithm/dreamerpro.yaml`](../../../configs/algorithm/dreamerpro.yaml) |
 | Model size presets | [`configs/algorithm/dreamer/`](../../../configs/algorithm/dreamer/) |
 | Atari environment | [`configs/environment/atari_dreamer.yaml`](../../../configs/environment/atari_dreamer.yaml) |
 | Breakout experiment | [`configs/experiment/dreamer/breakout.yaml`](../../../configs/experiment/dreamer/breakout.yaml) |
+| Hero experiment | [`configs/experiment/dreamer/hero.yaml`](../../../configs/experiment/dreamer/hero.yaml) |
+| Qbert experiment | [`configs/experiment/dreamer/qbert.yaml`](../../../configs/experiment/dreamer/qbert.yaml) |
 
 ```shell
-python src/train.py experiment=dreamer/breakout
+# Standard DreamerV3 (pixel reconstruction)
+python src/train.py experiment=dreamer/hero
+
+# R2-Dreamer (Barlow Twins, decoder-free)
+python src/train.py experiment=dreamer/hero algorithm=r2dreamer
+
+# DreamerPro (prototypical assignment, decoder-free)
+python src/train.py experiment=dreamer/hero algorithm=dreamerpro
 ```
 
 ### Model size presets
@@ -86,23 +113,27 @@ Experiments default to `200m`. Override with e.g. `+algorithm/dreamer=50m`.
 
 | Pseudocode step | Where in code |
 |-----------------|---------------|
-| RSSM prior + posterior | `dreamer_model.py` → `RSSM.forward()` |
-| World model losses | `dreamer_model.py` → `Dreamer._cal_grad()` |
-| Imagination rollout | `dreamer_model.py` → `Dreamer._imagine_ahead()` |
-| Actor-critic update | `dreamer_model.py` → `Dreamer._update_actor_critic()` |
-| Latent write-back | `buffer.py` → `Buffer.update()` |
-| Sequence sampling | `buffer.py` → `Buffer.sample()` |
-| RSSM state across steps | `dreamer.py` → `DreamerPolicy.forward()` |
-| Proportional update cadence | `dreamer.py` → `DreamerAlgorithm.step()` |
+| RSSM prior + posterior | [`rssm.py`](rssm.py) → `RSSM.forward()` |
+| World model losses (DreamerV3) | [`model/dreamerv3.py`](model/dreamerv3.py) → `DreamerV3._cal_grad()` |
+| Representation loss (R2Dreamer) | [`model/r2dreamer.py`](model/r2dreamer.py) → `R2Dreamer._compute_rep_losses()` |
+| Representation loss (DreamerPro) | [`model/dreamerpro.py`](model/dreamerpro.py) → `DreamerPro._compute_rep_losses()` |
+| Imagination rollout | [`model/dreamerv3.py`](model/dreamerv3.py) → `DreamerV3._imagine()` |
+| λ-return computation | [`model/dreamerv3.py`](model/dreamerv3.py) → `DreamerV3._lambda_return()` |
+| Latent write-back | [`buffer.py`](buffer.py) → `Buffer.update()` |
+| Sequence sampling | [`buffer.py`](buffer.py) → `Buffer.sample()` |
+| RSSM state across steps | [`dreamer.py`](dreamer.py) → `DreamerPolicy.forward()` |
+| Proportional update cadence | [`dreamer.py`](dreamer.py) → `DreamerAlgorithm.step()` |
 
 ### TorchRL integration notes
 
 Three design decisions required custom adaptation due to TorchRL conventions:
 
-1. **Single-step collection (`frames_per_batch=1`).** `SyncDataCollector` collects one
-   transition at a time, feeding it directly to `Buffer.add_transition()`. The update
-   cadence is controlled by `train_ratio` inside `DreamerAlgorithm.step()` rather than
-   by the collector batch size.
+1. **Proportional collection cadence.** `SyncDataCollector` collects
+   `frames_per_batch = ⌊B·T / ρ⌋` transitions per iteration (default: 8 with
+   $B=16, T=64, \rho=128$) and feeds them to `Buffer.add_transition()`. Update
+   frequency is governed by `train_ratio` inside `DreamerAlgorithm.step()`, not by
+   the collector batch size — the algorithm fires one gradient update per batch
+   regardless of how many frames were collected.
 
 2. **`is_first` key.** TorchRL's `InitTracker` emits `is_init`; the RSSM needs
    `is_first` to zero its hidden state at episode boundaries. A `RenameTransform`
@@ -119,6 +150,9 @@ Three design decisions required custom adaptation due to TorchRL conventions:
 
 **Live W&B table (canonical):** [LatentLab/torchrl-hydra-template — Table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)
 
-| Run | Environment | Config | Seed | Agent frames | Eval return | Notes |
-|-----|-------------|--------|------|--------------|-------------|-------|
-| — | ALE/Breakout-v5 | `experiment=dreamer/breakout` | — | — | — | in progress |
+| Run | Environment | Config | Seed | Frames | Eval return | Notes |
+|-----|-------------|--------|------|--------|-------------|-------|
+| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/16fz493j) | ALE/Breakout-v5 | `—` | 44 | 100,000 | — | — |
+| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/ye56nt3x) | ALE/Breakout-v5 | `—` | 43 | 100,000 | — | — |
+| [dreamer_hero_atari100k_200m_2026-07-03_11-56-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/9uxulxij) | ALE/Hero-v5 | `—` | 42 | 100,000 | — | Max Pooling |
+| [dreamer_qbert_200m_2026-06-28_13-09-21](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/n999qaas) | ALE/Qbert-v5 | `—` | 2 | 100,000 | — | — |
