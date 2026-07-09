@@ -103,6 +103,45 @@ def test_smoke_ddpg_halfcheetah():
     assert len(metrics) > 0
 
 
+def _tdmpc2_overrides() -> list[str]:
+    # 120 frames in 40-frame batches: 1 warm-up batch, then a 1-update pretrain
+    # burst and 1-update batches. Tiny model (dims divisible by simnorm_dim=8)
+    # and a shrunk MPPI keep the run to seconds on CPU. 40 seed frames within a
+    # single 500-step trajectory guarantee horizon-3 slices exist.
+    return [
+        *BASE_OVERRIDES,
+        "trainer.total_frames=120",
+        "trainer.log_every_n_steps=40",
+        "algorithm.compile=false",
+        "algorithm.frames_per_batch=40",
+        "algorithm.init_random_frames=40",
+        "algorithm.pretrain_updates=1",
+        "algorithm.num_updates=1",
+        "algorithm.batch_size=4",
+        "algorithm.buffer_size=1000",
+        "algorithm.latent_dim=64",
+        "algorithm.enc_dim=32",
+        "algorithm.mlp_dim=32",
+        "algorithm.num_q=2",
+        "algorithm.num_samples=32",
+        "algorithm.num_elites=4",
+        "algorithm.num_pi_trajs=2",
+        "algorithm.iterations=1",
+        "checkpoint.enabled=false",
+    ]
+
+
+def test_smoke_tdmpc2_cheetah_run():
+    """TD-MPC2 on dm_control cheetah-run: world model, MPPI planning, slice buffer."""
+    pytest.importorskip("dm_control")  # dm_control is an optional system dep
+    cfg = load_experiment_cfg("tdmpc2/cheetah_run", _tdmpc2_overrides())
+    from src.train import _train
+
+    metrics = _train(cfg)
+    assert isinstance(metrics, dict)
+    assert len(metrics) > 0
+
+
 def _a2c_overrides() -> list[str]:
     # 600 frames in 120-frame rollouts: 5 collections, 6 mini-batches each
     # (mini_batch_size=20). On-policy: no replay buffer, no warm-up.

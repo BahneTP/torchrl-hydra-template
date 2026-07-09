@@ -45,6 +45,7 @@ ALGO_TARGET_PREFIXES: dict[str, str] = {
     "src.algorithms.dqn.": "dqn",
     "src.algorithms.ddpg.": "ddpg",
     "src.algorithms.a2c.": "a2c",
+    "src.algorithms.tdmpc2.": "tdmpc2",
 }
 
 

@@ -2,3 +2,6 @@
 [2026-05-07 14:03:25,101][asyncio][WARNING] - socket.send() raised exception.
 [2026-05-08 08:00:19,089][asyncio][WARNING] - socket.send() raised exception.
 [2026-05-08 08:00:19,090][asyncio][WARNING] - socket.send() raised exception.
+[2026-07-08 12:38:15,507][absl][INFO] - MUJOCO_GL is not set, so an OpenGL backend will be chosen automatically.
+[2026-07-08 12:38:15,536][absl][INFO] - Successfully imported OpenGL backend: glfw
+[2026-07-08 12:38:15,689][absl][INFO] - MuJoCo library version is: 3.10.0
