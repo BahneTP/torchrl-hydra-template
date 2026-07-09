@@ -8,11 +8,13 @@ action_repeat: 4  # game frames per agent step; AtariPreprocessing(frame_skip=4)
 device: ${trainer.accelerator}
 agent_video_log_every: 50_000  # log agent gameplay video every N environment frames
 agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues across episode resets)
+benchmark_frames: 400_000       # eval/score_* cutoff in game frames (Atari100k: 100k agent steps x action_repeat); later episodes only show on episode/score
 
 buffer_config:
   num_envs: ${trainer.num_envs}  # must match trainer.num_envs
   batch_size: 16
   batch_length: 64
+  online: true    # official DreamerV3 replay.online: fresh segments are always trained on once before uniform sampling resumes
   max_size: 5e6
   storage_device: cpu #! Keep Replay Buffer on CPU (Mabe use GPU on Kiel)
   device: ${trainer.accelerator}

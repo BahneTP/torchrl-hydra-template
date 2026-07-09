@@ -4,6 +4,8 @@ It is modified to integrate with our Hydra Pipeline and TorchRL
 Changes are marked with Comments #!
 """
 
+from collections import deque
+
 import torch
 from tensordict import TensorDict
 from torchrl.data.replay_buffers import LazyTensorStorage, ReplayBuffer
@@ -17,6 +19,16 @@ class Buffer:
         self.batch_size = int(config.batch_size)
         self.batch_length = int(config.batch_length)
         self.num_envs = int(getattr(config, "num_envs", 1))  #! R2Dreamer had `self.num_eps = 0` (unused episode counter); replaced with num_envs for episode-ID stamping
+        self.max_size = int(config.max_size)
+        #! Online sampling (official DreamerV3 `replay.online: True`, absent from
+        #! R2Dreamer): every fresh, non-overlapping (batch_length+1)-step segment
+        #! is queued and served before uniform samples, so all new experience is
+        #! trained on immediately at least once.
+        self.online = bool(getattr(config, "online", True))
+        self._seq_len = self.batch_length + 1
+        self._online_queue: deque[tuple[int, int]] = deque()  # (per-env start step, env)
+        self._steps_per_env = 0        # per-env transitions added so far
+        self._next_online_start = 0    # per-env step where the next online segment begins
         self._buffer = ReplayBuffer(
             #! Flat (ndim=1) storage: every transition occupies one slot in a 1-D
             # sequence.  The previous ndim=2 design stored each transition as a
@@ -48,12 +60,40 @@ class Buffer:
         episode_ids = torch.arange(self.num_envs, dtype=torch.int32).repeat(n_frames // self.num_envs)
         data.set("episode", episode_ids)
         self._buffer.extend(data)
+        #! Queue every complete fresh segment for online sampling. Segments tile
+        #! each env's stream without overlap, like the official replay's queue.
+        self._steps_per_env += n_frames // self.num_envs
+        if self.online:
+            while self._steps_per_env - self._next_online_start >= self._seq_len:
+                for env in range(self.num_envs):
+                    self._online_queue.append((self._next_online_start, env))
+                self._next_online_start += self._seq_len
 
     def sample(self):
         sample_td, info = self._buffer.sample(return_info=True)
         # SliceSampler returns B*(T+1) contiguous steps in a flat TensorDict.
         # Reshape to (B, T+1) so each row is one training sequence.
         sample_td = sample_td.view(-1, self.batch_length + 1)
+        #! TorchRL wraps storage indices in a tuple; unwrap to a flat 1-D tensor.
+        raw_index = info["index"]
+        index = raw_index[0] if isinstance(raw_index, tuple) else raw_index
+        #! Online sampling: overwrite leading rows with the freshest queued
+        #! segments (fetched from storage by index) before uniform rows.
+        n_online = min(len(self._online_queue), self.batch_size) if self.online else 0
+        if n_online:
+            rows = []
+            for _ in range(n_online):
+                start, env = self._online_queue.popleft()
+                steps = torch.arange(start, start + self._seq_len, dtype=torch.long)
+                rows.append((steps * self.num_envs + env) % self.max_size)
+            online_idx = torch.stack(rows)  # (n_online, T+1)
+            online_td = self._buffer[online_idx.reshape(-1).to(self.storage_device)]
+            sample_td = torch.cat(
+                [online_td.view(n_online, self._seq_len), sample_td[n_online:]], 0
+            )
+            index = index.view(-1, self._seq_len).clone()
+            index[:n_online] = online_idx.to(dtype=index.dtype, device=index.device)
+            index = index.reshape(-1)
         src_dev = sample_td.device
         if src_dev.type == "cpu" and self.device.type == "cuda":
             sample_td = sample_td.pin_memory().to(self.device, non_blocking=True)
@@ -65,11 +105,6 @@ class Buffer:
         initial = (sample_td["stoch"][:, 0], sample_td["deter"][:, 0])
         data = sample_td[:, 1:]
         data.set_("action", sample_td["action"][:, :-1])  # action is 1 step back
-        #! TorchRL wraps storage indices in a tuple; R2Dreamer iterated over it.
-        # With flat 1-D storage there is exactly one element — unwrap it so update()
-        # receives a plain 1-D tensor of shape (B*(T+1),).
-        raw_index = info["index"]
-        index = raw_index[0] if isinstance(raw_index, tuple) else raw_index
         return data, index, initial
 
     def update(
