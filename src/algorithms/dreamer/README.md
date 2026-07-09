@@ -145,14 +145,32 @@ Three design decisions required custom adaptation due to TorchRL conventions:
    `SliceSampler(traj_key="episode", end_key=None)` to sample contiguous blocks
    without respect for episode ends, matching the original ring-buffer semantics.
 
+4. **Online sampling** (`buffer_config.online`, default on; official DreamerV3
+   `replay.online: True`, absent from R2Dreamer). Each fresh, non-overlapping
+   $(T{+}1)$-step segment of experience is queued and served at the front of the
+   next batch before uniform sampling fills the rest, so every collected
+   transition is trained on exactly once as soon as it exists. Uniform
+   `SliceSampler` slices near the write cursor cannot cover the newest steps,
+   so without this queue fresh data is systematically under-sampled.
+
 
 ## Experimental results
+
+**Evaluation protocol.** Following the official DreamerV3 code (`run.steps: 1.1e5`),
+the Atari100k experiment configs train for 110k agent steps — 10 % past the
+benchmark budget of 100k steps (400k game frames) stated in the paper. The
+end-of-run summary metrics stay paper-comparable: `eval/score_last` and
+`eval/score_mean_last10pct` are cut off at `algorithm.benchmark_frames`
+(default 400k game frames), i.e. the last episode within the budget and the mean
+over episodes in its final 10 % (360k–400k frames). Episodes past the budget
+appear only on the `episode/score` curve, for debugging and run-to-run comparison. Some runs below don"t have any eval metrics yet so they are not listed, replace them with new ones in the future.
 
 **Live W&B table (canonical):** [LatentLab/torchrl-hydra-template — Table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/16fz493j) | ALE/Breakout-v5 | `—` | 44 | 100,000 | — | — |
-| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/ye56nt3x) | ALE/Breakout-v5 | `—` | 43 | 100,000 | — | — |
-| [dreamer_hero_atari100k_200m_2026-07-03_11-56-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/9uxulxij) | ALE/Hero-v5 | `—` | 42 | 100,000 | — | Max Pooling |
-| [dreamer_qbert_200m_2026-06-28_13-09-21](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/n999qaas) | ALE/Qbert-v5 | `—` | 2 | 100,000 | — | — |
+| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/16fz493j) | ALE/Breakout-v5 | `experiment=dreamer/breakout` | 44 | 100,000 | — | — |
+| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/ye56nt3x) | ALE/Breakout-v5 | `experiment=dreamer/breakout` | 43 | 100,000 | — | — |
+| [dreamer_hero_atari100k_200m_2026-07-03_11-56-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/9uxulxij) | ALE/Hero-v5 | `experiment=dreamer/hero` | 42 | 100,000 | — | Max Pooling |
+| [dreamer_hero_atari100k_200m_2026-07-07_16-10-02](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/w21pstf9) | ALE/Hero-v5 | `experiment=dreamer/hero` | 44 | 100,000 | 7,339.3 | — |
+| [dreamer_qbert_200m_2026-06-28_13-09-21](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/n999qaas) | ALE/Qbert-v5 | `experiment=dreamer/qbert` | 2 | 100,000 | — | — |

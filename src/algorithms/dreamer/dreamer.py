@@ -100,6 +100,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         action_repeat: int = 4,
         agent_video_log_every: int = 50_000,
         agent_video_max_steps: int = 200,
+        benchmark_frames: int | None = 400_000,
     ) -> None:
         # Resolve model class from dreamer_config._target_
         target = dreamer_config.get("_target_", None)
@@ -111,6 +112,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         self.action_repeat = action_repeat
         self.agent_video_log_every = agent_video_log_every
         self.agent_video_max_steps = agent_video_max_steps
+        self.benchmark_frames = benchmark_frames
         self.batch_length = buffer_config.batch_length
         self.batch_size = buffer_config.batch_size
 
@@ -286,19 +288,26 @@ class DreamerAlgorithm(BaseAlgorithm):
     def finalize_metrics(self) -> dict[str, float]:
         """End-of-run summary metrics mirroring DreamerCDP's eval block.
 
-        Logs ``eval/score_last``, ``eval/score_mean_last10pct``, and
-        ``eval/score_n_last10pct`` — the last episode score and the mean over
-        episodes that completed in the final 10 % of total training frames.
+        ``eval/score_*`` are pinned to the benchmark budget
+        (``benchmark_frames``, Atari100k: 400k game frames = 100k agent steps)
+        so they stay paper-comparable even when training runs past the budget,
+        as the official DreamerV3 code does (``run.steps: 1.1e5``):
+        ``eval/score_last`` is the last episode completing within the budget and
+        ``eval/score_mean_last10pct`` averages episodes in its final 10 %.
+        Episodes beyond the budget still appear on the ``episode/score`` curve.
         """
         if not self._all_ep_scores:
             return {}
-        total_frames = max(f for f, _ in self._all_ep_scores)
-        cutoff = total_frames * 0.9
-        last10pct = [sc for f, sc in self._all_ep_scores if f >= cutoff]
-        out: dict[str, float] = {"eval/score_last": self._all_ep_scores[-1][1]}
-        if last10pct:
-            out["eval/score_mean_last10pct"] = sum(last10pct) / len(last10pct)
-            out["eval/score_n_last10pct"] = float(len(last10pct))
+        out: dict[str, float] = {}
+        run_end = max(f for f, _ in self._all_ep_scores)
+        cutoff = min(self.benchmark_frames or run_end, run_end)
+        eps = [(f, sc) for f, sc in self._all_ep_scores if f <= cutoff]
+        if eps:
+            out["eval/score_last"] = eps[-1][1]
+            last10pct = [sc for f, sc in eps if f >= cutoff * 0.9]
+            if last10pct:
+                out["eval/score_mean_last10pct"] = sum(last10pct) / len(last10pct)
+                out["eval/score_n_last10pct"] = float(len(last10pct))
         import wandb
         if wandb.run is not None:
             wandb.log(out, step=self._collected_frames)
@@ -328,7 +337,9 @@ class DreamerAlgorithm(BaseAlgorithm):
             if img is not None:
                 frames.append(img.cpu())
 
-            td = self._eval_policy(td)
+            # Sampled policy: matches the behaviour that produces the logged
+            # scores; argmax can loop forever in the deterministic ALE.
+            td = self._explore_policy(td)
             td = env.step(td)
 
             if td.get(("next", "done"), default=torch.zeros(1)).bool().any():
@@ -349,6 +360,10 @@ class DreamerAlgorithm(BaseAlgorithm):
         return wandb.Video(video, fps=20, format="mp4")
 
     def get_policy(self) -> TensorDictModule:
+        # Argmax (dist.mode) policy. Not used anywhere in training — collection,
+        # scores and videos all run the sampled explore policy, matching official
+        # DreamerV3 (which has no argmax path at all). Only eval.py reaches this;
+        # prefer get_explore_policy() there for protocol-comparable numbers.
         return self._eval_policy
 
     def get_explore_policy(self) -> TensorDictModule:
