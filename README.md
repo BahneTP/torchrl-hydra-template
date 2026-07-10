@@ -40,6 +40,7 @@ Two derived rules:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`           |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah`   |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
+| DreamerV3       | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero`  |
 
 Other algorithms will follow.
 
@@ -54,6 +55,7 @@ results. Experimental metrics are tracked on
 | DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
 | DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
 | A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+| DreamerV3       | [`src/algorithms/dreamer/README.md`](src/algorithms/dreamer/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:

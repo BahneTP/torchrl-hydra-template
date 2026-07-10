@@ -124,3 +124,44 @@ def test_smoke_a2c_halfcheetah():
     metrics = _train(cfg)
     assert isinstance(metrics, dict)
     assert len(metrics) > 0
+
+
+def _dreamer_overrides() -> list[str]:
+    # Constraint: batch_size * batch_length >= train_ratio (128) so that
+    # frames_per_batch = (batch_size*batch_length/train_ratio) >= 1.
+    # batch_size=16, batch_length=8 → product=128, frames_per_batch=1.
+    # First update fires after (batch_length+1)*action_repeat = 36 game frames
+    # = 9 collector steps. total_frames=20 gives ~11 updates on a tiny model.
+    return [
+        *BASE_OVERRIDES,
+        "trainer.total_frames=20",
+        "trainer.log_every_n_steps=10",
+        "trainer.num_envs=1",
+        # Tiny model so CPU completes well within the 300s timeout
+        "model.deter=64",
+        "model.hidden=64",
+        "model.discrete=8",
+        "model.depth=8",
+        "model.units=64",
+        # Short sequences keep RSSM cheap; product must stay >= train_ratio
+        "algorithm.buffer_config.batch_size=16",
+        "algorithm.buffer_config.batch_length=8",
+        "algorithm.buffer_config.max_size=500",
+        # Disable compile — torch.compile on CPU takes minutes on first call
+        "algorithm.dreamer_config.compile=false",
+        # Short imagination horizon to reduce per-update cost
+        "algorithm.dreamer_config.imag_horizon=3",
+    ]
+
+
+def test_smoke_dreamer_hero():
+    """DreamerV3 on ALE/Hero-v5: pixel obs, RSSM world model, actor-critic."""
+    pytest.importorskip("ale_py")
+    cfg = load_experiment_cfg("dreamer/hero", _dreamer_overrides())
+    from src.train import _train
+
+    metrics = _train(cfg)
+    # DreamerAlgorithm.step() always returns {} — metrics are accumulated
+    # internally and flushed via pop_train_metrics() to logger callbacks.
+    # Just verify the run completed without raising.
+    assert isinstance(metrics, dict)
