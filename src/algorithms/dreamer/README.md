@@ -169,8 +169,9 @@ appear only on the `episode/score` curve, for debugging and run-to-run compariso
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/16fz493j) | ALE/Breakout-v5 | `experiment=dreamer/breakout` | 44 | 100,000 | — | — |
-| [dreamer_breakout_200m_2026-06-29_16-38-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/ye56nt3x) | ALE/Breakout-v5 | `experiment=dreamer/breakout` | 43 | 100,000 | — | — |
-| [dreamer_hero_atari100k_200m_2026-07-03_11-56-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/9uxulxij) | ALE/Hero-v5 | `experiment=dreamer/hero` | 42 | 100,000 | — | Max Pooling |
-| [dreamer_hero_atari100k_200m_2026-07-07_16-10-02](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/w21pstf9) | ALE/Hero-v5 | `experiment=dreamer/hero` | 44 | 100,000 | 7,339.3 | — |
-| [dreamer_qbert_200m_2026-06-28_13-09-21](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/n999qaas) | ALE/Qbert-v5 | `experiment=dreamer/qbert` | 2 | 100,000 | — | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_10-35-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/8m6v58pk) | ALE/Hero-v5 | `experiment=dreamer/hero` | 42 | 110,000 | 10,253.3 | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/51h2g461) | ALE/Hero-v5 | `experiment=dreamer/hero` | 45 | 110,000 | 12,391.2 | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/p9fwwjdd) | ALE/Hero-v5 | `experiment=dreamer/hero` | 44 | 110,000 | 6,331.2 | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/udxi7rsc) | ALE/Hero-v5 | `experiment=dreamer/hero` | 43 | 110,000 | 6,920.5 | — |
+| [dreamerpro_hero_atari100k_200m_2026-07-09_11-16-03](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/7ydjbg18) | ALE/Hero-v5 | `experiment=dreamer/hero` | 44 | 110,000 | 2,983.5 | DreamerPro |
+| [r2dreamer_hero_atari100k_200m_2026-07-08_14-10-27](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/4sz2koi1) | ALE/Hero-v5 | `experiment=dreamer/hero` | 42 | 100,000 | 4,598.8 | R2Dreamer |
