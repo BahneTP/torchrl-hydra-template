@@ -270,7 +270,10 @@ Use this when training-time and evaluation-time observations should differ
 - delegates device resolution to `src/utils/device.py`.
 
 `BaseTrainer` owns env lifecycle, `evaluate(num_episodes)` (greedy rollout), and
-checkpoint orchestration.
+checkpoint orchestration. Checkpointing is **off by default** (`checkpoint.enabled:
+false` in `configs/train.yaml`); enable it with
+`checkpoint.enabled=true` (and optionally tune `save_every_n_steps` /
+`save_last`). `checkpoint.resume_from` still works when checkpointing is disabled.
 
 ## File map
 

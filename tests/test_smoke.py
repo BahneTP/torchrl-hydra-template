@@ -18,9 +18,6 @@ BASE_OVERRIDES = [
     "logger=[]",
     "trainer.accelerator=cpu",
     "trainer.devices=[0]",
-    "checkpoint.save_dir=/tmp/hydra_smoke_tests/checkpoints",
-    "checkpoint.save_last=false",
-    "checkpoint.save_every_n_steps=999999999",
     "hydra.run.dir=/tmp/hydra_smoke_tests",
 ]
 
