@@ -15,8 +15,9 @@ Implemented experiments:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`         |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`  |
-
-Other algorithms will follow.
+| DER       | ALE/Jamesbond-v5 | `experiment=atari100k/der/jamesbond` |
+| SPR / SR-SPR | ALE/Jamesbond-v5 | `experiment=atari100k/{spr,sr_spr}/jamesbond` |
+| BBF / SAC-BBF | ALE/Jamesbond-v5 | `experiment=atari100k/{bbf,sac_bbf}/jamesbond` |
 
 ## Design principles
 
@@ -231,6 +232,34 @@ transforms:
   # ... (see configs/environment/pong_train.yaml for the full SOTA stack)
 ```
 
+```yaml
+# configs/environment/atari100k_train.yaml — game selected by experiment config
+name: ALE/${atari.game}-v5
+gym_backend: gymnasium
+gym_kwargs:
+  frameskip: 1
+  repeat_action_probability: 0.0
+  disable_env_checker: true
+  from_pixels: true
+  pixels_only: false
+  categorical_action_encoding: false
+transforms:
+  - _target_: src.environments.atari_wrappers.AtariPreprocessingTransform
+    frame_skip: 4
+    terminal_on_life_loss: true
+  - _target_: torchrl.envs.NoopResetEnv
+    noops: 30
+    random: true
+  - _target_: torchrl.envs.ToTensorImage
+  - _target_: torchrl.envs.GrayScale
+  - _target_: torchrl.envs.Resize
+    w: 84
+    h: 84
+  - _target_: torchrl.envs.RewardSum
+  - _target_: torchrl.envs.StepCounter
+    max_steps: 27000
+```
+
 The factory in `src/environments/factory.py` supports gymnasium only.
 For >1 `num_envs`, workers run on CPU (`ParallelEnv` with `mp_start_method="spawn"`).
 
@@ -291,9 +320,18 @@ src/
     a2c/
       a2c.py                — A2CAlgorithm; on-policy actor/critic with GAE + A2CLoss
       README.md             — theory, pseudocode, W&B benchmark table
+    common/
+      pixel_control.py      — TorchRL adapter shared by pixel-control agents
+      pixel_networks.py, rl.py — shared pixel-control network/RL helpers
+    der/, spr/, bbf/, sac_bbf/
+      *.py                  — DER/SPR/SR-SPR/BBF/SAC-BBF learning cores
+  replay/
+    prioritized.py, sum_tree.py — NumPy prioritized replay implementation
   environments/
     environment.py          — Environment wrapper (holds factory kwargs, exposes make_env)
     factory.py              — make_env: gymnasium + transforms list + gym_kwargs/gym_backend
+    atari_wrappers.py       — Atari max-and-skip / episodic-life TorchRL transform
+    atari_wrappers.py       — Atari 100K max-and-skip/life-loss preprocessing wrappers
   trainers/
     BaseTrainer.py          — BaseTrainer ABC, TrainerEvent, Callback protocol, fire_callbacks
     StepTrainer.py          — StepTrainer (Collector-driven loop)
@@ -304,14 +342,18 @@ configs/
   algorithm/dqn_atari.yaml  — DQN HPs (Atari/NatureDQN defaults; pixel obs)
   algorithm/ddpg.yaml       — DDPG HPs (HalfCheetah defaults); _partial_ actor/critic/noise
   algorithm/a2c.yaml        — A2C HPs (HalfCheetah/MuJoCo defaults); _partial_ actor/value
+  algorithm/{der,spr,sr_spr,bbf,sac_bbf}.yaml — DER/SPR/SR-SPR/BBF/SAC-BBF HPs
   environment/cartpole.yaml — env kwargs (name, transforms)
   environment/pong_train.yaml — Atari Pong env (training transforms incl. EndOfLife + Sign + VecNorm)
   environment/pong_eval.yaml  — Atari Pong env (eval transforms; drops EndOfLife + Sign + VecNorm)
+  environment/atari100k_train.yaml — generic Atari 100K training env; game via `${atari.game}`
+  environment/atari100k_eval.yaml  — generic Atari 100K eval env; game via `${atari.game}`
   environment/halfcheetah.yaml — HalfCheetah-v4 (DoubleToFloat + InitTracker)
   experiment/dqn/cartpole.yaml — composed CartPole experiment
   experiment/dqn/pong.yaml     — composed Atari Pong experiment
   experiment/ddpg/halfcheetah.yaml — composed DDPG HalfCheetah experiment
   experiment/a2c/halfcheetah.yaml — composed A2C HalfCheetah experiment
+  experiment/atari100k/{der,spr,sr_spr,bbf,sac_bbf}/jamesbond.yaml
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
@@ -366,6 +408,9 @@ python src/train.py experiment=dqn/cartpole 'logger=[wandb]'  # experiments defa
 python src/train.py experiment=dqn/pong            # Atari Pong (40M frames, GPU)
 python src/train.py experiment=ddpg/halfcheetah    # DDPG continuous control (1M frames)
 python src/train.py experiment=a2c/halfcheetah     # A2C on-policy continuous control (1M frames)
+python src/train.py experiment=atari100k/der/jamesbond # Atari 100K DER
+python src/train.py experiment=atari100k/spr/jamesbond # Atari 100K SPR
+python src/train.py experiment=atari100k/bbf/jamesbond # Atari 100K BBF
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
 ```

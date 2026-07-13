@@ -40,6 +40,9 @@ Two derived rules:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`           |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah`   |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
+| DER       | ALE/Jamesbond-v5 | `experiment=atari100k/der/jamesbond` |
+| SPR / SR-SPR | ALE/Jamesbond-v5 | `experiment=atari100k/{spr,sr_spr}/jamesbond` |
+| BBF / SAC-BBF | ALE/Jamesbond-v5 | `experiment=atari100k/{bbf,sac_bbf}/jamesbond` |
 
 Other algorithms will follow.
 
@@ -54,6 +57,7 @@ results. Experimental metrics are tracked on
 | DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
 | DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
 | A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+| DER/SPR/BBF pixel-control variants | [`src/algorithms/common/README.md`](src/algorithms/common/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:
@@ -100,6 +104,14 @@ GPU):
 
 ```shell
 python src/train.py experiment=dqn/pong
+```
+
+For Atari 100K experiments:
+
+```shell
+python src/train.py experiment=atari100k/der/jamesbond
+python src/train.py experiment=atari100k/spr/jamesbond
+python src/train.py experiment=atari100k/bbf/jamesbond
 ```
 
 ## Architecture
@@ -177,13 +189,14 @@ they encode design decisions (which storage backend, what MLP shape). Their defa
 live in `src/algorithms/dqn/dqn.py` as constructor kwargs and inline lambdas. To
 swap them, edit those defaults or pass a different factory in code.
 
-`train.py` unpacks `cfg.algorithm` as `**kwargs`, so YAML values override defaults
-and CLI overrides override YAML:
+`train.py` instantiates `cfg.algorithm` recursively, so nested Hydra factories
+such as replay buffers and networks become real callables. YAML values override
+defaults and CLI overrides override YAML:
 
 ```python
-alg_kwargs = {k: v for k, v in OmegaConf.to_container(cfg.algorithm, resolve=True).items()
-              if k != "_target_"}
-algorithm = AlgClass(device=None, **alg_kwargs)
+from hydra.utils import instantiate
+
+algorithm = instantiate(cfg.algorithm, device=None)
 ```
 
 ### Environment
@@ -215,6 +228,27 @@ transforms:
     noops: 30
     random: true
   # ...
+```
+
+For Atari 100K wrappers that need classic max-and-skip and episodic-life reset
+semantics, use the project transform in the regular transform list:
+
+```yaml
+# configs/environment/atari100k_train.yaml
+name: ALE/${atari.game}-v5
+gym_backend: gymnasium
+gym_kwargs:
+  frameskip: 1
+  repeat_action_probability: 0.0
+  from_pixels: true
+  pixels_only: false
+transforms:
+  - _target_: src.environments.atari_wrappers.AtariPreprocessingTransform
+    frame_skip: 4
+    terminal_on_life_loss: true
+  - _target_: torchrl.envs.NoopResetEnv
+    noops: 30
+    random: true
 ```
 
 `make_env` in `src/environments/factory.py` instantiates each transform fresh per
@@ -275,11 +309,18 @@ configs/
 │   ├── dqn.yaml            <- DQN HPs (CartPole defaults)
 │   ├── dqn_atari.yaml      <- DQN HPs (Atari/NatureDQN defaults)
 │   ├── ddpg.yaml           <- DDPG HPs (HalfCheetah defaults)
-│   └── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   ├── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   ├── der.yaml            <- DER HPs
+│   ├── spr.yaml            <- SPR HPs
+│   ├── sr_spr.yaml         <- SR-SPR HPs
+│   ├── bbf.yaml            <- BBF HPs
+│   └── sac_bbf.yaml        <- SAC-BBF HPs
 ├── environment/
 │   ├── cartpole.yaml       <- env name + transforms
 │   ├── pong_train.yaml     <- Pong with EndOfLife + Sign + VecNorm (training)
 │   ├── pong_eval.yaml      <- Pong without those transforms (evaluation)
+│   ├── atari100k_train.yaml <- generic Atari 100K training env
+│   ├── atari100k_eval.yaml  <- generic Atari 100K evaluation env
 │   └── halfcheetah.yaml    <- HalfCheetah-v4 (DoubleToFloat + InitTracker)
 ├── logger/
 │   ├── wandb.yaml
@@ -291,8 +332,10 @@ configs/
     │   └── pong.yaml       <- composed Atari Pong experiment
     ├── ddpg/
     │   └── halfcheetah.yaml <- composed DDPG HalfCheetah experiment
-    └── a2c/
-        └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    ├── a2c/
+    │   └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    └── atari100k/
+        └── {der,spr,sr_spr,bbf,sac_bbf}/jamesbond.yaml
 ```
 
 ### Override hierarchy
