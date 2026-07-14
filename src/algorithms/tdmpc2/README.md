@@ -9,6 +9,38 @@ implementation is adapted from it; each adapted file carries a source-attributio
 replayed trajectory slices; actions are selected by **MPPI planning** over short latent
 rollouts, seeded by the policy prior.
 
+## Background: what is MPC, and why fuse it with TD learning?
+
+**Model Predictive Control (MPC)** is a *closed-loop* planning scheme: at every
+environment step, use a model to simulate candidate action sequences over a short
+horizon $H$ starting from the *current* observation, pick the best sequence — but
+**execute only its first action**. At the next step, the plan is thrown away and
+planning starts over from the newly observed state ("receding horizon" control). This
+constant replanning is what makes MPC robust to model errors: a plan is only ever
+trusted for one step before it is re-checked against reality, so prediction errors
+cannot compound over a whole episode. The price is compute — a full optimisation
+problem is solved at every single env step.
+
+Pure MPC has a **horizon problem**: the planner can only value what it can simulate.
+With a short horizon it is myopic (it would never take an action whose payoff arrives
+after step $H$), and extending the horizon makes planning both exponentially harder and
+less accurate, since latent-model errors accumulate with rollout length.
+
+**The TD-MPC fusion** solves this by splitting the return estimate in two:
+
+$$\hat{G}(z_0, a_{0:H-1}) \;=\; \underbrace{\sum_{t=0}^{H-1} \gamma^t\, R(z_t, a_t)}_{\text{planned: model rollout}} \;+\; \underbrace{\gamma^H\, Q\bigl(z_H,\, p(z_H)\bigr)}_{\text{learned: TD value function}}$$
+
+MPC handles the *near* future — the first $H$ steps (default $H=3$), where the learned
+dynamics are still accurate — and a Q-function trained by ordinary temporal-difference
+learning summarises *everything beyond* the horizon as a terminal value. The plan
+therefore only needs to look a few steps ahead instead of to the end of the episode:
+the TD value turns short-horizon MPC into a far-sighted controller. Conversely, the
+planner improves on the raw policy $p$ at test time (it locally searches around it), so
+TD-MPC behaves like a policy-improvement operator applied at every action selection.
+This is exactly `MPPIPlanner._estimate_value()` in [`planner.py`](planner.py): rewards
+are accumulated for `horizon` steps, then the bootstrap term
+$\gamma^H Q(z_H, \cdot)$ is added.
+
 ## Key ideas
 
 - **Implicit (decoder-free) world model.** The latent $z = h(s)$ is trained only to
@@ -23,9 +55,10 @@ rollouts, seeded by the policy prior.
   randomly subsampled heads (target network, Polyak `tau`), value estimates in planning
   use the average.
 - **MPPI planning.** At every env step, sample `num_samples` action sequences of length
-  `horizon` (some rolled out from the policy prior $p$), evaluate them with the model,
-  refit a Gaussian to the `num_elites` best, iterate, then execute the first action of a
-  sampled elite. The plan mean is warm-started from the previous step.
+  `horizon` (some rolled out from the policy prior $p$), score each with model rewards
+  plus the terminal Q-value (the TD-MPC fusion above), refit a Gaussian to the
+  `num_elites` best, iterate, then execute the first action of a sampled elite. The
+  plan mean is warm-started from the previous step.
 - **Policy prior.** A tanh-squashed Gaussian trained to maximise (running-scale
   normalised) Q-values plus entropy — it seeds the planner and computes TD targets.
 
