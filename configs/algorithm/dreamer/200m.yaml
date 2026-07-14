@@ -1,0 +1,12 @@
+# @package _global_
+# DreamerV3 XL / ~200M parameter model size
+model_size: "200m"
+
+model:
+  deter: 8192
+  hidden: 1024
+  discrete: 64
+  depth: 64
+  units: 1024
+  act: 'SiLU'
+  norm: True

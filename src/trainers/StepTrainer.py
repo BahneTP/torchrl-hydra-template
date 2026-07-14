@@ -64,22 +64,31 @@ class StepTrainer(BaseTrainer):
             metrics = self.algorithm.step(batch)
             step_time = time.perf_counter() - step_start
 
+            log_step = getattr(self.algorithm, "log_step", self._step)
+            pop = getattr(self.algorithm, "pop_train_metrics", None)
+
             if self._should_log(log_every, batch_frames):
-                metrics.update(_batch_metrics(batch))
+                log_metrics = pop() if pop is not None else metrics
+                if pop is None:
+                    log_metrics.update(_batch_metrics(batch))
                 total_time = collect_time + step_time
-                metrics["time/collect"] = collect_time
-                metrics["time/step"] = step_time
-                metrics["time/speed"] = (
+                log_metrics["time/collect"] = collect_time
+                log_metrics["time/step"] = step_time
+                log_metrics["time/speed"] = (
                     batch_frames / total_time if total_time > 0 else 0.0
                 )
                 fire_callbacks(
                     TrainerEvent.ON_STEP_END,
                     self.callbacks,
-                    metrics=metrics,
-                    step=self._step,
+                    metrics=log_metrics,
+                    step=log_step,
                 )
 
+        if hasattr(self.algorithm, "finalize_metrics"):
+            self.algorithm.finalize_metrics()
+
         return metrics
+
 
 
 def _batch_metrics(batch: TensorDict) -> dict[str, float]:

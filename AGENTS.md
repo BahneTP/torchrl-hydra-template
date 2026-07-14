@@ -16,6 +16,7 @@ Implemented experiments:
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`  |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
+| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
 
 Other algorithms will follow.
 
