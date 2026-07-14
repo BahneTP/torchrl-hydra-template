@@ -15,6 +15,8 @@ Implemented experiments:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`         |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`  |
+| PPO       | DMC cheetah-run | `experiment=ppo/dmc_cheetah_run` |
+| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/jamesbond` |
 
 Other algorithms will follow.
 
@@ -105,6 +107,19 @@ Rules:
       parity with the actor factory.
   All keep everything after the two positional args **kwarg-only**, so a Hydra
   `_partial_` config can pre-bind kwargs without colliding with `setup()`'s call.
+- **Shared, algorithm-agnostic building blocks live in `src/components/`.**
+  `src/components/networks.py` holds actor-critic factories with cleanRL-style
+  orthogonal initialisation (same `(obs_shape, action_dim)` + kwarg-only
+  convention):
+    - `orthogonal_init_(module, *, hidden_gain, final_gain, bias_const)` —
+      orthogonal weights (√2 hidden; 0.01 policy head / 1.0 value head), zero biases.
+    - `make_normal_mlp_actor(...)` — MLP mean + `AddStateIndependentNormalScale`
+      (state-independent learned log-std); outputs `(loc, scale)`.
+    - `make_mlp_value(...)` — MLP V(s) critic.
+    - `make_nature_cnn_trunk(...)` — Nature-DQN ConvNet+Linear trunk shared by
+      actor/critic heads (pass as PPO's `common_network`).
+    - `make_categorical_head(...)` / `make_value_head(...)` — logits / V(s)
+      heads on trunk features.
 - `obs_key` selects which tensordict key the observation comes from. Vector
   envs (CartPole) use `"observation"`; pixel envs (Atari with `from_pixels=True`)
   use `"pixels"`. The key is forwarded to `QValueActor.in_keys` and used to read
@@ -157,17 +172,33 @@ batch and merged into the algorithm's metrics dict at logging boundaries.
 This mirrors the torchrl SOTA DQN reference and keeps batch-level bookkeeping
 out of the algorithm.
 
-### On-policy variant (A2C)
+### On-policy variant (A2C, PPO)
 
-A2C drops three of those internals entirely: no long-term replay buffer, no
-target networks, no warm-up. Each `step(batch)` runs `GAE` on the rollout
-under `no_grad`, refills a one-shot buffer with `SamplerWithoutReplacement`,
-and does one epoch of mini-batch updates with `A2CLoss`. The buffer in
-`a2c.py` is built directly in `setup()` (not exposed as a `_partial_`
-factory) because its size is locked to `frames_per_batch / mini_batch_size`
-— it's an implementation detail of the on-policy schedule, not a research
-choice. `get_collector_config()` returns `init_random_frames=0` since the
-stochastic actor explores from frame zero.
+A2C and PPO drop three of those internals entirely: no long-term replay
+buffer, no target networks, no warm-up. Each `step(batch)` runs `GAE` on the
+rollout under `no_grad`, refills a one-shot buffer with
+`SamplerWithoutReplacement`, and does mini-batch updates (`A2CLoss` /
+`ClipPPOLoss`). The buffer in `a2c.py` / `ppo.py` is built directly in
+`setup()` (not exposed as a `_partial_` factory) because its size is locked
+to `frames_per_batch / mini_batch_size` — it's an implementation detail of
+the on-policy schedule, not a research choice. `get_collector_config()`
+returns `init_random_frames=0` since the stochastic actor explores from
+frame zero.
+
+PPO extends the A2C shape with: `num_epochs` passes over the rollout
+(re-iterating the buffer reshuffles), the clipped ratio objective + clipped
+value loss (`ClipPPOLoss`), per-minibatch advantage normalization, linear lr
+annealing over `anneal_frames` (an algorithm HP — keep it equal to
+`trainer.total_frames` in experiment configs), and Adam ε=1e-5. **Run GAE on
+the unflattened batch (before `reshape(-1)`)** — with `num_envs > 1` the
+rollout is `[num_envs, T]` and GAE needs the trailing time dim. One
+`PPOAlgorithm` class covers vector and pixel inputs: pass `common_network`
+(e.g. `make_nature_cnn_trunk`) to share a trunk between actor and critic
+heads via `ActorValueOperator` (see `configs/algorithm/ppo_atari.yaml`);
+leave it `None` for separate MLPs (`configs/algorithm/ppo.yaml`). The
+actor's distribution is picked from the action spec: `Categorical` over
+`logits` for discrete specs, `IndependentNormal` over `(loc, scale)` for
+continuous ones.
 
 ## Instantiation in `src/train.py` / `src/eval.py`
 
@@ -206,6 +237,12 @@ constructor defaults.
   "categorical_action_encoding": true}` for Atari).
 - `gym_backend`: optional backend name (`"gymnasium"`); if set, the GymEnv
   construction is wrapped in `set_gym_backend(...)`.
+- `backend`: `"gymnasium"` (default) or `"dm_control"`. For dm_control,
+  `name` is `"<domain>/<task>"` (e.g. `"cheetah/run"`), built via
+  `torchrl.envs.DMControlEnv`; `gym_kwargs`/`gym_backend` do not apply. The
+  factory sets `MUJOCO_GL=disabled` (headless) unless already set. dm_control
+  returns a dict observation — add a `CatTensors` transform to flatten it
+  into `"observation"` (see `configs/environment/dmc_cheetah_run.yaml`).
 
 ```yaml
 # configs/environment/cartpole.yaml
@@ -231,7 +268,7 @@ transforms:
   # ... (see configs/environment/pong_train.yaml for the full SOTA stack)
 ```
 
-The factory in `src/environments/factory.py` supports gymnasium only.
+The factory in `src/environments/factory.py` supports gymnasium and dm_control.
 For >1 `num_envs`, workers run on CPU (`ParallelEnv` with `mp_start_method="spawn"`).
 
 ### Separate evaluation env
@@ -283,6 +320,10 @@ src/
   networks.py               — network factories: make_mlp_q_net, NatureDQN,
                               make_mlp_ddpg_actor, make_mlp_ddpg_critic,
                               make_mlp_a2c_actor, make_mlp_a2c_value
+  components/
+    networks.py             — shared actor-critic factories with orthogonal init:
+                              orthogonal_init_, make_normal_mlp_actor, make_mlp_value,
+                              make_nature_cnn_trunk, make_categorical_head, make_value_head
   algorithms/
     base.py                 — BaseAlgorithm ABC; TrainingState and CollectorConfig dataclasses
     dqn/
@@ -294,9 +335,12 @@ src/
     a2c/
       a2c.py                — A2CAlgorithm; on-policy actor/critic with GAE + A2CLoss
       README.md             — theory, pseudocode, W&B benchmark table
+    ppo/
+      ppo.py                — PPOAlgorithm; on-policy clipped-ratio updates with GAE + ClipPPOLoss
+      README.md             — theory, pseudocode, trick mapping, W&B benchmark table
   environments/
     environment.py          — Environment wrapper (holds factory kwargs, exposes make_env)
-    factory.py              — make_env: gymnasium + transforms list + gym_kwargs/gym_backend
+    factory.py              — make_env: gymnasium/dm_control + transforms list + gym_kwargs/gym_backend
   trainers/
     BaseTrainer.py          — BaseTrainer ABC, TrainerEvent, Callback protocol, fire_callbacks
     StepTrainer.py          — StepTrainer (Collector-driven loop)
@@ -307,19 +351,27 @@ configs/
   algorithm/dqn_atari.yaml  — DQN HPs (Atari/NatureDQN defaults; pixel obs)
   algorithm/ddpg.yaml       — DDPG HPs (HalfCheetah defaults); _partial_ actor/critic/noise
   algorithm/a2c.yaml        — A2C HPs (HalfCheetah/MuJoCo defaults); _partial_ actor/value
+  algorithm/ppo.yaml        — PPO HPs (cleanRL continuous-action defaults); _partial_ actor/value
+  algorithm/ppo_atari.yaml  — PPO HPs (shared CNN trunk; Atari-100k tuned); _partial_ common/actor/value
   environment/cartpole.yaml — env kwargs (name, transforms)
   environment/pong_train.yaml — Atari Pong env (training transforms incl. EndOfLife + Sign + VecNorm)
   environment/pong_eval.yaml  — Atari Pong env (eval transforms; drops EndOfLife + Sign + VecNorm)
+  environment/jamesbond_train.yaml — Atari JamesBond env (Atari-100k: no sticky actions)
+  environment/jamesbond_eval.yaml  — Atari JamesBond env (eval transforms; true game scores)
+  environment/dmc_cheetah_run.yaml — DMC cheetah-run (dm_control backend; CatTensors + VecNorm + clips)
   environment/halfcheetah.yaml — HalfCheetah-v4 (DoubleToFloat + InitTracker)
   experiment/dqn/cartpole.yaml — composed CartPole experiment
   experiment/dqn/pong.yaml     — composed Atari Pong experiment
   experiment/ddpg/halfcheetah.yaml — composed DDPG HalfCheetah experiment
   experiment/a2c/halfcheetah.yaml — composed A2C HalfCheetah experiment
+  experiment/ppo/dmc_cheetah_run.yaml — composed PPO DMC cheetah-run experiment (1M frames)
+  experiment/ppo/jamesbond.yaml — composed PPO Atari-100k JamesBond experiment (100k steps)
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
 tests/
-  test_smoke.py             — DQN-on-CartPole, DQN-on-Pong, DDPG-on-HalfCheetah, A2C-on-HalfCheetah smoke tests
+  test_smoke.py             — DQN-on-CartPole, DQN-on-Pong, DDPG-on-HalfCheetah, A2C-on-HalfCheetah,
+                              PPO-on-DMC-cheetah, PPO-on-JamesBond smoke tests
 ```
 
 ## Documentation
@@ -369,6 +421,8 @@ python src/train.py experiment=dqn/cartpole 'logger=[wandb]'  # experiments defa
 python src/train.py experiment=dqn/pong            # Atari Pong (40M frames, GPU)
 python src/train.py experiment=ddpg/halfcheetah    # DDPG continuous control (1M frames)
 python src/train.py experiment=a2c/halfcheetah     # A2C on-policy continuous control (1M frames)
+python src/train.py experiment=ppo/dmc_cheetah_run # PPO on DMC cheetah-run (1M frames)
+python src/train.py experiment=ppo/jamesbond       # PPO on Atari-100k JamesBond (100k steps, GPU)
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
 ```

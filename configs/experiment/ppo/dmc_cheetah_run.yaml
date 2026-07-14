@@ -1,0 +1,22 @@
+# @package _global_
+# PPO on DMC cheetah-run at 1M frames — cleanRL ppo_continuous_action.py
+# hyperparameters (https://docs.cleanrl.dev/rl-algorithms/ppo/) on the
+# DeepMind Control Suite task via the dm_control backend.
+# All algorithm hyperparameters live in configs/algorithm/ppo.yaml;
+# only trainer-side settings are overridden here.
+defaults:
+  - override /algorithm: ppo
+  - override /environment: dmc_cheetah_run
+  - override /logger: wandb
+  - _self_
+
+algorithm:
+  anneal_frames: 1_000_000  # = trainer.total_frames
+
+trainer:
+  total_frames: 1_000_000
+  seed: 42
+  accelerator: cpu
+  devices: [0]
+  num_envs: 1
+  log_every_n_steps: 1_000

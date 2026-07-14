@@ -40,6 +40,8 @@ Two derived rules:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`           |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah`   |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
+| PPO       | DMC cheetah-run | `experiment=ppo/dmc_cheetah_run` |
+| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/jamesbond` |
 
 Other algorithms will follow.
 
@@ -54,6 +56,7 @@ results. Experimental metrics are tracked on
 | DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
 | DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
 | A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+| PPO | [`src/algorithms/ppo/README.md`](src/algorithms/ppo/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:
@@ -222,7 +225,23 @@ call (so stateful transforms like `CatFrames` get independent state), composes
 them on top of `GymEnv(name, **gym_kwargs)`, and wraps in `ParallelEnv` when
 `num_envs > 1`.
 
-Backends supported: **gymnasium**.
+Backends supported: **gymnasium** (default) and **dm_control**. For the
+DeepMind Control Suite, set `backend: dm_control` and use a
+`"<domain>/<task>"` name; the factory builds a `torchrl.envs.DMControlEnv`
+and defaults `MUJOCO_GL=disabled` (headless, no rendering) unless you set it
+yourself:
+
+```yaml
+# configs/environment/dmc_cheetah_run.yaml
+name: cheetah/run
+backend: dm_control
+transforms:
+  - _target_: torchrl.envs.CatTensors        # flatten dict obs -> "observation"
+    in_keys: [position, velocity]
+    out_key: observation
+    del_keys: true
+  # ...
+```
 
 #### Separate evaluation environment
 
@@ -275,11 +294,16 @@ configs/
 │   ├── dqn.yaml            <- DQN HPs (CartPole defaults)
 │   ├── dqn_atari.yaml      <- DQN HPs (Atari/NatureDQN defaults)
 │   ├── ddpg.yaml           <- DDPG HPs (HalfCheetah defaults)
-│   └── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   ├── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   ├── ppo.yaml            <- PPO HPs (cleanRL continuous-action defaults)
+│   └── ppo_atari.yaml      <- PPO HPs (shared CNN trunk, Atari-100k tuned)
 ├── environment/
 │   ├── cartpole.yaml       <- env name + transforms
 │   ├── pong_train.yaml     <- Pong with EndOfLife + Sign + VecNorm (training)
 │   ├── pong_eval.yaml      <- Pong without those transforms (evaluation)
+│   ├── jamesbond_train.yaml <- JamesBond (Atari-100k: no sticky actions)
+│   ├── jamesbond_eval.yaml  <- JamesBond eval variant (true game scores)
+│   ├── dmc_cheetah_run.yaml <- DMC cheetah-run (dm_control backend + VecNorm)
 │   └── halfcheetah.yaml    <- HalfCheetah-v4 (DoubleToFloat + InitTracker)
 ├── logger/
 │   ├── wandb.yaml
@@ -291,8 +315,11 @@ configs/
     │   └── pong.yaml       <- composed Atari Pong experiment
     ├── ddpg/
     │   └── halfcheetah.yaml <- composed DDPG HalfCheetah experiment
-    └── a2c/
-        └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    ├── a2c/
+    │   └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    └── ppo/
+        ├── dmc_cheetah_run.yaml <- composed PPO DMC cheetah-run experiment (1M)
+        └── jamesbond.yaml       <- composed PPO Atari-100k JamesBond experiment
 ```
 
 ### Override hierarchy
@@ -510,3 +537,8 @@ torchrl SOTA reference at
 The A2C reference implementation in `src/algorithms/a2c/a2c.py` is modelled on the
 torchrl SOTA reference at
 [`pytorch/rl/sota-implementations/a2c/a2c_mujoco.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/a2c/a2c_mujoco.py).
+The PPO reference implementation in `src/algorithms/ppo/ppo.py` follows
+[cleanRL's PPO](https://docs.cleanrl.dev/rl-algorithms/ppo/) and
+[*The 37 Implementation Details of PPO*](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/),
+cross-checked against the
+[torchrl SOTA PPO references](https://github.com/pytorch/rl/tree/main/sota-implementations/ppo).
