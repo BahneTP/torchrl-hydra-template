@@ -30,10 +30,16 @@ Two derived rules:
    configured with `_partial_` / nested `_target_` in `configs/algorithm/*.yaml` and
    built via **`instantiate(cfg.algorithm, device=None)`** in `train.py` / `eval.py`.
 
-Currently DQN (CartPole, Pong), DDPG (HalfCheetah-v4), A2C (HalfCheetah-v4), and
-PPO (DMC cheetah-run, Atari-100k JamesBond) are implemented; other algorithms will
-follow. Shared, algorithm-agnostic building blocks (e.g. orthogonal-init
-actor-critic factories) live in `src/components/`.
+Currently DQN (CartPole, Pong), DDPG (HalfCheetah-v4), A2C (HalfCheetah-v4),
+PPO (DMC cheetah-run, Atari-100k JamesBond) and TD-MPC2 (dm_control cheetah-run)
+are implemented; other algorithms will follow. Shared, algorithm-agnostic
+building blocks (e.g. orthogonal-init actor-critic factories, and reusable code
+adapted from external repos with source-attribution headers) live in
+`src/components/`.
+
+TD-MPC2 documents an accepted deviation from rule 3: architecturally coupled
+subnetworks are built from scalar kwargs in `setup()` (no `_partial_` factories)
+to stay state-dict compatible with official upstream checkpoints.
 
 ## Key patterns (quick reference)
 
