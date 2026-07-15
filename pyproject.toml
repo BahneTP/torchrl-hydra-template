@@ -18,14 +18,17 @@ dependencies = [
     "ale-py>=0.9.0",
     "autorom[accept-rom-license]>=0.6.1",
     "torchvision>=0.18.0",  # Atari pixel transforms (Resize)
+    "opencv-python-headless>=4.8.0",  # AtariPreprocessing (frame resize)
     # Logging
-    "wandb>=0.17.0",
+    "wandb[media]>=0.17.0",
     "tensorboard>=2.16.0",
     # Utilities
     "tqdm>=4.66.0",
     # Testing
     "pytest>=8.0.0",
     "pytest-timeout>=2.3.0",
+    "dm-control>=1.0.43",
+    "pandas>=2.0.0",
 ]
 
 [build-system]

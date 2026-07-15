@@ -1,6 +1,10 @@
 # Hydra outputs & logs (train, eval, wandb, tensorboard all under logs/)
 logs/
 outputs/
+eval.log
+
+# Downloaded model checkpoints (e.g. official TD-MPC2 weights)
+checkpoints/
 
 # Weights & Biases (root-level fallback)
 wandb/

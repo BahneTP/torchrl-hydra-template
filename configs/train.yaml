@@ -19,14 +19,15 @@ trainer:
   log_every_n_steps: 1_000
 
 checkpoint:
+  enabled: false
   save_dir: ${paths.output_dir}/checkpoints
   save_every_n_steps: 50_000
-  save_last: true
+  save_last: false
   resume_from: null       # path to .pt file to resume from
 
 hydra:
   run:
     dir: ${paths.log_dir}/train/runs/${now:%Y-%m-%d_%H-%M-%S}
   sweep:
-    dir: ${paths.log_dir}/train/multiruns/${now:%Y-%m-%d_%H-%M-%S}
+    dir: logs/train/multiruns/${now:%Y-%m-%d_%H-%M-%S}
     subdir: ${hydra.job.num}

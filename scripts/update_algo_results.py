@@ -45,6 +45,8 @@ ALGO_TARGET_PREFIXES: dict[str, str] = {
     "src.algorithms.dqn.": "dqn",
     "src.algorithms.ddpg.": "ddpg",
     "src.algorithms.a2c.": "a2c",
+    "src.algorithms.tdmpc2.": "tdmpc2",
+    "src.algorithms.dreamer.": "dreamer",
 }
 
 
@@ -55,6 +57,7 @@ class ExperimentSpec:
     path: str  # e.g. ``dqn/cartpole``
     algorithm_choice: str  # e.g. ``dqn``, ``dqn_atari``
     environment_choice: str  # e.g. ``cartpole``, ``pong_train``
+    environment_name: str | None = None  # set when the experiment YAML overrides name directly
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,7 @@ def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec
                 path=exp_path,
                 algorithm_choice=algo,
                 environment_choice=env,
+                environment_name=_parse_env_name(text),
             )
         )
     return specs
@@ -95,6 +99,16 @@ def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec
 def _parse_override(text: str, group: str) -> str | None:
     match = re.search(rf"override {re.escape(group)}:\s*(\S+)", text)
     return match.group(1) if match else None
+
+
+def _parse_env_name(text: str) -> str | None:
+    """Read environment.name from an experiment YAML if set explicitly."""
+    match = re.search(
+        r"^environment:\s*$\n(?:[ \t]+\S[^\n]*\n)*?[ \t]+name:\s*(\S[^\n]*)",
+        text,
+        re.MULTILINE,
+    )
+    return match.group(1).strip().strip("'\"") if match else None
 
 
 def algo_package_from_target(target: str | None) -> str | None:
@@ -122,10 +136,18 @@ def infer_experiment_config(
     obs_key = algo_cfg.get("obs_key", "observation")
 
     for spec in registry:
-        env_yaml = REPO_ROOT / "configs" / "environment" / f"{spec.environment_choice}.yaml"
-        if not env_yaml.exists():
-            continue
-        env_choice_name = _read_yaml_scalar(env_yaml, "name")
+        # Use the name from the experiment YAML if set; fall back to env YAML.
+        # Some base env configs use name: ??? (e.g. atari_dreamer) and rely on
+        # the experiment YAML to supply the actual name.
+        if spec.environment_name is not None:
+            env_choice_name = spec.environment_name
+        else:
+            env_yaml = REPO_ROOT / "configs" / "environment" / f"{spec.environment_choice}.yaml"
+            if not env_yaml.exists():
+                continue
+            env_choice_name = _read_yaml_scalar(env_yaml, "name")
+            if not env_choice_name or env_choice_name == "???":
+                continue
         if env_choice_name != env_name:
             continue
 
@@ -171,15 +193,23 @@ def format_return(value: float | None) -> str:
 
 
 def get_eval_return(run) -> tuple[float | None, str]:
-    """Best available return metric and optional note suffix."""
+    """Best available return metric and optional note suffix.
+
+    Priority:
+      1. eval/score_mean_last10pct  — Dreamer end-of-run summary (last 10 % of frames)
+      2. eval/return_mean           — DQN / DDPG eval-env metric
+      3. max train/episode_reward   — fallback for runs without an eval env
+    """
     summary = run.summary
-    eval_mean = summary.get("eval/return_mean")
-    if eval_mean is not None:
-        try:
-            if eval_mean == eval_mean:  # skip NaN
-                return float(eval_mean), ""
-        except (TypeError, ValueError):
-            pass
+
+    for key in ("eval/score_mean_last10pct", "eval/return_mean"):
+        val = summary.get(key)
+        if val is not None:
+            try:
+                if val == val:  # skip NaN
+                    return float(val), ""
+            except (TypeError, ValueError):
+                pass
 
     try:
         history = run.history(keys=["train/episode_reward"], pandas=False)

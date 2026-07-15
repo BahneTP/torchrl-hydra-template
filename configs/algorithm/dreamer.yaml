@@ -1,0 +1,191 @@
+_target_: src.algorithms.dreamer.dreamer.DreamerAlgorithm
+_recursive_: false   # dreamer_config has _target_ but is passed as DictConfig, not instantiated here
+
+
+# Wrapper Parameters (DreamerAlgorithm)
+train_ratio: 128 # Divides Batch_Size * Batch_Length to determine the number of updates per data collection phase (how many frames till next update)
+action_repeat: 4  # game frames per agent step; AtariPreprocessing(frame_skip=4) in atari_dreamer.yaml
+device: ${trainer.accelerator}
+agent_video_log_every: 50_000  # log agent gameplay video every N environment frames
+agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues across episode resets)
+benchmark_frames: 400_000       # eval/score_* cutoff in game frames (Atari100k: 100k agent steps x action_repeat); later episodes only show on episode/score
+
+buffer_config:
+  num_envs: ${trainer.num_envs}  # must match trainer.num_envs
+  batch_size: 16
+  batch_length: 64
+  online: true    # official DreamerV3 replay.online: fresh segments are always trained on once before uniform sampling resumes
+  max_size: 5e6
+  storage_device: cpu #! Keep Replay Buffer on CPU (Mabe use GPU on Kiel)
+  device: ${trainer.accelerator}
+
+
+# Inner Engine Parameters (Dreamer)
+dreamer_config:
+  _target_: src.algorithms.dreamer.model.DreamerV3
+  act_entropy: 3e-4
+  kl_free: 1.0
+  imag_horizon: 15
+  horizon: 333
+  lamb: 0.95
+  compile: True
+  log_grads: False
+  device: ${trainer.accelerator}
+
+  lr: 4e-5
+  agc: 0.3
+  pmin: 1e-3
+  eps: 1e-20
+  beta1: 0.9
+  beta2: 0.999
+  warmup: 1000
+  slow_target_update: 1
+  slow_target_fraction: 0.02
+
+  # Loss scales — set to 0 to fully disable a loss and its associated module.
+  # recon > 0  → decoder is built (DreamerV3 reconstruction)
+  # barlow > 0 or infonce > 0 → projector is built (R2Dreamer contrastive)
+  # swav > 0 or temp > 0      → prototypes are built (DreamerPro)
+  loss_scales:
+    recon: 1.0     # image reconstruction (DreamerV3)
+    rew: 1.0
+    con: 1.0
+    dyn: 1.0
+    rep: 0.1
+    policy: 1.0
+    value: 1.0
+    repval: 0.3
+    barlow: 0.0    # Barlow Twins (R2Dreamer)
+    infonce: 0.0   # InfoNCE contrastive (R2Dreamer)
+    swav: 0.0      # SwAV prototype obs loss (DreamerPro)
+    temp: 0.0      # temporal prototype feat loss (DreamerPro)
+    norm: 0.0      # projection norm regularisation (DreamerPro)
+    
+  rssm:
+    stoch: 32
+    deter: ${model.deter}
+    hidden: ${model.hidden}
+    discrete: ${model.discrete}
+    img_layers: 2
+    obs_layers: 1
+    dyn_layers: 1
+    blocks: 8
+    act: ${model.act}
+    norm: ${model.norm}
+    unimix_ratio: 0.01
+    initial: 'learned'
+    device: ${trainer.accelerator}
+    
+  encoder:
+    mlp_keys: ${env.encoder.mlp_keys}
+    cnn_keys: ${env.encoder.cnn_keys}
+    mlp:
+      shape: null
+      layers: 3
+      units: ${model.units}
+      act: ${model.act}
+      norm: ${model.norm}
+      device: ${trainer.accelerator}
+      outscale: null
+      symlog_inputs: True
+      name: 'mlp_encoder'
+    cnn:
+      act: ${model.act}
+      norm: ${model.norm}
+      kernel_size: 5
+      minres: 4
+      depth: ${model.depth}
+      mults: [2, 3, 4, 4]
+      
+  decoder:
+    mlp_keys: ${env.decoder.mlp_keys}
+    cnn_keys: ${env.decoder.cnn_keys}
+    mlp_dist:
+      name: 'symlog_mse'
+    cnn_dist:
+      name: 'mse'
+    mlp:
+      shape: null
+      layers: 3
+      units: ${model.units}
+      act: ${model.act}
+      norm: ${model.norm}
+      dist:
+        name: 'identity'
+      device: ${trainer.accelerator}
+      outscale: 1.0
+      symlog_inputs: False
+      name: 'mlp_decoder'
+    cnn:
+      depth: ${model.depth}
+      units: ${model.units}
+      bspace: 8
+      mults: [2, 3, 4, 4]
+      act: ${model.act}
+      norm: ${model.norm}
+      kernel_size: 5
+      minres: 4
+      outscale: 1.0
+      
+  reward:
+    shape: [255,]
+    layers: 1
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    dist:
+      name: 'symexp_twohot'
+      bin_num: 255
+    outscale: 0.0
+    device: ${trainer.accelerator}
+    symlog_inputs: False
+    name: 'reward'
+    
+  cont:
+    shape: [1,]
+    layers: 1
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    dist:
+      name: 'binary'
+    outscale: 1.0
+    device: ${trainer.accelerator}
+    symlog_inputs: False
+    name: 'cont'
+    
+  actor:
+    shape: null
+    layers: 3
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    device: ${trainer.accelerator}
+    dist:
+      cont:
+        name: 'bounded_normal'
+        min_std: 0.1
+        max_std: 1.0
+      disc:
+        name: 'onehot'
+        unimix_ratio: 0.01
+      multi_disc:
+        name: 'multi_onehot'
+        unimix_ratio: 0.01
+    outscale: 0.01
+    symlog_inputs: False
+    name: 'actor'
+    
+  critic:
+    shape: [255,]
+    layers: 3
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    device: ${trainer.accelerator}
+    dist:
+      name: 'symexp_twohot'
+      bin_num: 255
+    outscale: 0.0
+    symlog_inputs: False
+    name: 'value'

@@ -40,6 +40,8 @@ Two derived rules:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`           |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah`   |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
+| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
+| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
 
 Other algorithms will follow.
 
@@ -54,6 +56,8 @@ results. Experimental metrics are tracked on
 | DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
 | DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
 | A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+| TD-MPC2 | [`src/algorithms/tdmpc2/README.md`](src/algorithms/tdmpc2/README.md) |
+| DreamerV3 | [`src/algorithms/dreamer/README.md`](src/algorithms/dreamer/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:
@@ -222,7 +226,23 @@ call (so stateful transforms like `CatFrames` get independent state), composes
 them on top of `GymEnv(name, **gym_kwargs)`, and wraps in `ParallelEnv` when
 `num_envs > 1`.
 
-Backends supported: **gymnasium**.
+Backends supported: **gymnasium** (default) and **dm_control**. For DeepMind
+Control Suite tasks set `backend: dm_control` and give the domain as `name` plus
+a `task`; the factory builds a `torchrl.envs.DMControlEnv`:
+
+```yaml
+# configs/environment/dmc_cheetah_run.yaml
+backend: dm_control
+name: cheetah
+task: run
+transforms:
+  - _target_: torchrl.envs.transforms.FrameSkipTransform   # action repeat 2
+    frame_skip: 2
+  - _target_: torchrl.envs.transforms.CatTensors            # flatten obs dict
+    in_keys: [position, velocity]
+    out_key: observation
+  # ...
+```
 
 #### Separate evaluation environment
 
@@ -275,12 +295,14 @@ configs/
 │   ├── dqn.yaml            <- DQN HPs (CartPole defaults)
 │   ├── dqn_atari.yaml      <- DQN HPs (Atari/NatureDQN defaults)
 │   ├── ddpg.yaml           <- DDPG HPs (HalfCheetah defaults)
-│   └── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   ├── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+│   └── tdmpc2.yaml         <- TD-MPC2 HPs (model_size=5, DMC defaults)
 ├── environment/
 │   ├── cartpole.yaml       <- env name + transforms
 │   ├── pong_train.yaml     <- Pong with EndOfLife + Sign + VecNorm (training)
 │   ├── pong_eval.yaml      <- Pong without those transforms (evaluation)
-│   └── halfcheetah.yaml    <- HalfCheetah-v4 (DoubleToFloat + InitTracker)
+│   ├── halfcheetah.yaml    <- HalfCheetah-v4 (DoubleToFloat + InitTracker)
+│   └── dmc_cheetah_run.yaml <- dm_control cheetah-run (action repeat 2, flat obs)
 ├── logger/
 │   ├── wandb.yaml
 │   └── tensorboard.yaml
@@ -291,8 +313,10 @@ configs/
     │   └── pong.yaml       <- composed Atari Pong experiment
     ├── ddpg/
     │   └── halfcheetah.yaml <- composed DDPG HalfCheetah experiment
-    └── a2c/
-        └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    ├── a2c/
+    │   └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
+    └── tdmpc2/
+        └── cheetah_run.yaml <- composed TD-MPC2 DMC cheetah-run experiment
 ```
 
 ### Override hierarchy
@@ -510,3 +534,14 @@ torchrl SOTA reference at
 The A2C reference implementation in `src/algorithms/a2c/a2c.py` is modelled on the
 torchrl SOTA reference at
 [`pytorch/rl/sota-implementations/a2c/a2c_mujoco.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/a2c/a2c_mujoco.py).
+The TD-MPC2 implementation in `src/algorithms/tdmpc2/` is adapted from the official
+implementation by Nicklas Hansen at
+[nicklashansen/tdmpc2](https://github.com/nicklashansen/tdmpc2) (MIT license); it stays
+state-dict compatible with the official checkpoints from
+[tdmpc2.com/models](https://www.tdmpc2.com/models).
+Shared building blocks live in `src/components/` with per-file attribution headers:
+`math.py`, `layers.py` and `scale.py` are adapted from nicklashansen/tdmpc2 (MIT),
+`distributions.py` from [NM512/r2dreamer](https://github.com/NM512/r2dreamer), and
+`optim/laprop.py` from
+[Z-T-WANG/LaProp-Optimizer](https://github.com/Z-T-WANG/LaProp-Optimizer) (MIT);
+`ema.py` and `optim/agc.py` are template-native.

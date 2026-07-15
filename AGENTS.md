@@ -15,6 +15,8 @@ Implemented experiments:
 | DQN       | ALE/Pong-v5    | `experiment=dqn/pong`         |
 | DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` |
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`  |
+| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
+| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
 
 Other algorithms will follow.
 
@@ -42,6 +44,17 @@ Other algorithms will follow.
    algorithm with `hydra.utils.instantiate(cfg.algorithm, device=None)`** so those
    nested configs become real callables. Plain `OmegaConf.to_container` + `**kwargs`
    would pass dicts instead of partials.
+
+   *Exception (TD-MPC2 precedent):* when subnetworks are architecturally coupled
+   (shared latent dims, checkpoint-compatibility pins parameter names), factories
+   add failure modes without research payoff. Then architecture knobs are plain
+   scalar kwargs and the model/buffer are built inside `setup()` — document the
+   deviation in the algorithm README.
+5. **Reusable building blocks live in `src/components/`.** Anything not specific
+   to one algorithm (e.g. two-hot discrete-regression math, SimNorm/NormedLinear/
+   vmapped `Ensemble` layers, `RunningScale`) goes there so other algorithms can
+   import it. Code adapted from external repos carries a source-attribution
+   header comment (upstream URL + file path + license).
 
 ## Algorithm constructor pattern
 
@@ -195,7 +208,8 @@ constructor defaults.
 ## Environment
 
 `Environment.__init__` accepts:
-- `name`: gymnasium env id (e.g. `"CartPole-v1"`, `"ALE/Pong-v5"`).
+- `name`: gymnasium env id (e.g. `"CartPole-v1"`, `"ALE/Pong-v5"`), or the
+  dm_control domain name (e.g. `"cheetah"`) when `backend: dm_control`.
 - `transforms`: list of `_target_`-keyed dicts, each instantiated as a
   `torchrl.envs.transforms` object and composed on top of the base env.
   Always include `StepCounter` explicitly. Add `RewardSum` if you want
@@ -206,6 +220,9 @@ constructor defaults.
   "categorical_action_encoding": true}` for Atari).
 - `gym_backend`: optional backend name (`"gymnasium"`); if set, the GymEnv
   construction is wrapped in `set_gym_backend(...)`.
+- `backend`: `"gymnasium"` (default) or `"dm_control"`.
+- `task`: dm_control task name (e.g. `"run"`); required for
+  `backend: dm_control`, ignored otherwise.
 
 ```yaml
 # configs/environment/cartpole.yaml
@@ -231,8 +248,25 @@ transforms:
   # ... (see configs/environment/pong_train.yaml for the full SOTA stack)
 ```
 
-The factory in `src/environments/factory.py` supports gymnasium only.
-For >1 `num_envs`, workers run on CPU (`ParallelEnv` with `mp_start_method="spawn"`).
+```yaml
+# configs/environment/dmc_cheetah_run.yaml — dm_control env
+backend: dm_control
+name: cheetah
+task: run
+transforms:
+  - _target_: torchrl.envs.transforms.FrameSkipTransform  # action repeat 2
+    frame_skip: 2
+  - _target_: torchrl.envs.transforms.CatTensors          # flatten dict obs -> "observation"
+    in_keys: [position, velocity]
+    out_key: observation
+  # ... (DoubleToFloat, InitTracker, StepCounter, RewardSum)
+```
+
+The factory in `src/environments/factory.py` supports **gymnasium** (`GymEnv`)
+and **dm_control** (`DMControlEnv`). dm_control observations are dicts; use
+`CatTensors` to flatten them into a single `observation` key (alphabetical
+`in_keys` order matches the upstream TD-MPC2 concatenation). For >1 `num_envs`,
+workers run on CPU (`ParallelEnv` with `mp_start_method="spawn"`).
 
 ### Separate evaluation env
 
@@ -269,7 +303,10 @@ Use this when training-time and evaluation-time observations should differ
 - delegates device resolution to `src/utils/device.py`.
 
 `BaseTrainer` owns env lifecycle, `evaluate(num_episodes)` (greedy rollout), and
-checkpoint orchestration.
+checkpoint orchestration. Checkpointing is **off by default** (`checkpoint.enabled:
+false` in `configs/train.yaml`); enable it with
+`checkpoint.enabled=true` (and optionally tune `save_every_n_steps` /
+`save_last`). `checkpoint.resume_from` still works when checkpointing is disabled.
 
 ## File map
 
@@ -291,9 +328,22 @@ src/
     a2c/
       a2c.py                — A2CAlgorithm; on-policy actor/critic with GAE + A2CLoss
       README.md             — theory, pseudocode, W&B benchmark table
+    tdmpc2/
+      tdmpc2.py             — TDMPC2Algorithm; world-model learning + slice replay buffer
+      world_model.py        — WorldModel (upstream-checkpoint compatible) + api_model_conversion
+      planner.py            — MPPIPlanner (latent-space planning, warm-started)
+      policy.py             — TensorDictModule wrapper (reads obs + is_init)
+      README.md             — theory, pseudocode, W&B benchmark table
+  components/               — reusable building blocks (per-file attribution headers)
+    math.py                 — symlog/symexp (canonical), two-hot discrete regression, squashed-Gaussian helpers (from nicklashansen/tdmpc2, MIT)
+    layers.py               — SimNorm, NormedLinear, vmapped Ensemble, LayerNorm-Mish mlp (from nicklashansen/tdmpc2, MIT)
+    scale.py                — RunningScale (trimmed-percentile value normalizer) (from nicklashansen/tdmpc2, MIT)
+    distributions.py        — Dreamer distribution factories: OneHotDist, TwoHot, SymlogDist, ... (from NM512/r2dreamer)
+    ema.py                  — polyak_update (in-place EMA of parameters)
+    optim/                  — LaProp optimizer (Z-T-WANG/LaProp-Optimizer, MIT), adaptive gradient clipping
   environments/
     environment.py          — Environment wrapper (holds factory kwargs, exposes make_env)
-    factory.py              — make_env: gymnasium + transforms list + gym_kwargs/gym_backend
+    factory.py              — make_env: gymnasium/dm_control + transforms list + gym_kwargs/gym_backend
   trainers/
     BaseTrainer.py          — BaseTrainer ABC, TrainerEvent, Callback protocol, fire_callbacks
     StepTrainer.py          — StepTrainer (Collector-driven loop)
@@ -304,19 +354,22 @@ configs/
   algorithm/dqn_atari.yaml  — DQN HPs (Atari/NatureDQN defaults; pixel obs)
   algorithm/ddpg.yaml       — DDPG HPs (HalfCheetah defaults); _partial_ actor/critic/noise
   algorithm/a2c.yaml        — A2C HPs (HalfCheetah/MuJoCo defaults); _partial_ actor/value
+  algorithm/tdmpc2.yaml     — TD-MPC2 HPs (model_size=5 preset; scalar knobs, no _partial_)
   environment/cartpole.yaml — env kwargs (name, transforms)
   environment/pong_train.yaml — Atari Pong env (training transforms incl. EndOfLife + Sign + VecNorm)
   environment/pong_eval.yaml  — Atari Pong env (eval transforms; drops EndOfLife + Sign + VecNorm)
   environment/halfcheetah.yaml — HalfCheetah-v4 (DoubleToFloat + InitTracker)
+  environment/dmc_cheetah_run.yaml — dm_control cheetah-run (FrameSkip 2 + CatTensors)
   experiment/dqn/cartpole.yaml — composed CartPole experiment
   experiment/dqn/pong.yaml     — composed Atari Pong experiment
   experiment/ddpg/halfcheetah.yaml — composed DDPG HalfCheetah experiment
   experiment/a2c/halfcheetah.yaml — composed A2C HalfCheetah experiment
+  experiment/tdmpc2/cheetah_run.yaml — composed TD-MPC2 DMC cheetah-run experiment
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
 tests/
-  test_smoke.py             — DQN-on-CartPole, DQN-on-Pong, DDPG-on-HalfCheetah, A2C-on-HalfCheetah smoke tests
+  test_smoke.py             — smoke tests: DQN (CartPole, Pong), DDPG, A2C, TD-MPC2
 ```
 
 ## Documentation
@@ -343,8 +396,9 @@ Example: `$Q(s, a; \theta)$`, `$\theta_{\text{target}}$`.
 5. Add `src/algorithms/my_algo/README.md` with theory, pseudocode, implementation
    mapping, and an experimental-results table (link to
    [W&B project table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)).
-   Tag benchmark W&B runs with `template`; refresh the table via
-   `python scripts/update_algo_results.py`. Use `$...$` for inline math (see
+   Tag benchmark W&B runs with `template`; register the algorithm's target prefix
+   in `ALGO_TARGET_PREFIXES` in `scripts/update_algo_results.py`, then refresh the
+   table via `python scripts/update_algo_results.py`. Use `$...$` for inline math (see
    [Documentation](#documentation)).
 6. **Update `README.md` and `AGENTS.md`.**
 7. Add a smoke test in `tests/test_smoke.py`.
@@ -366,6 +420,11 @@ python src/train.py experiment=dqn/cartpole 'logger=[wandb]'  # experiments defa
 python src/train.py experiment=dqn/pong            # Atari Pong (40M frames, GPU)
 python src/train.py experiment=ddpg/halfcheetah    # DDPG continuous control (1M frames)
 python src/train.py experiment=a2c/halfcheetah     # A2C on-policy continuous control (1M frames)
+python src/train.py experiment=tdmpc2/cheetah_run  # TD-MPC2 model-based control (1M frames, GPU)
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
+
+# Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):
+python src/eval.py algorithm=tdmpc2 environment=dmc_cheetah_run \
+  checkpoint.resume_from=$PWD/checkpoints/cheetah-run-1.pt trainer.accelerator=gpu
 ```
