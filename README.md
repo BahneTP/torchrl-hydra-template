@@ -534,8 +534,14 @@ torchrl SOTA reference at
 The A2C reference implementation in `src/algorithms/a2c/a2c.py` is modelled on the
 torchrl SOTA reference at
 [`pytorch/rl/sota-implementations/a2c/a2c_mujoco.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/a2c/a2c_mujoco.py).
-The TD-MPC2 implementation in `src/algorithms/tdmpc2/` (and the shared components in
-`src/components/`) is adapted from the official implementation by Nicklas Hansen at
+The TD-MPC2 implementation in `src/algorithms/tdmpc2/` is adapted from the official
+implementation by Nicklas Hansen at
 [nicklashansen/tdmpc2](https://github.com/nicklashansen/tdmpc2) (MIT license); it stays
 state-dict compatible with the official checkpoints from
 [tdmpc2.com/models](https://www.tdmpc2.com/models).
+Shared building blocks live in `src/components/` with per-file attribution headers:
+`math.py`, `layers.py` and `scale.py` are adapted from nicklashansen/tdmpc2 (MIT),
+`distributions.py` from [NM512/r2dreamer](https://github.com/NM512/r2dreamer), and
+`optim/laprop.py` from
+[Z-T-WANG/LaProp-Optimizer](https://github.com/Z-T-WANG/LaProp-Optimizer) (MIT);
+`ema.py` and `optim/agc.py` are template-native.

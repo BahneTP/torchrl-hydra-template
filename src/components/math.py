@@ -44,12 +44,12 @@ def squash(mu, pi, log_pi):
 
 def symlog(x: torch.Tensor) -> torch.Tensor:
     """Symmetric logarithm. Adapted from https://github.com/danijar/dreamerv3."""
-    return torch.sign(x) * torch.log(1 + torch.abs(x))
+    return torch.sign(x) * torch.log1p(torch.abs(x))
 
 
 def symexp(x: torch.Tensor) -> torch.Tensor:
     """Symmetric exponential (inverse of :func:`symlog`)."""
-    return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
+    return torch.sign(x) * torch.expm1(torch.abs(x))
 
 
 def two_hot(x: torch.Tensor, num_bins: int, vmin: float, vmax: float) -> torch.Tensor:

@@ -334,10 +334,13 @@ src/
       planner.py            — MPPIPlanner (latent-space planning, warm-started)
       policy.py             — TensorDictModule wrapper (reads obs + is_init)
       README.md             — theory, pseudocode, W&B benchmark table
-  components/               — reusable building blocks (adapted from nicklashansen/tdmpc2, MIT)
-    math.py                 — symlog/two-hot discrete regression, squashed-Gaussian helpers
-    layers.py               — SimNorm, NormedLinear, vmapped Ensemble, LayerNorm-Mish mlp
-    scale.py                — RunningScale (trimmed-percentile value normalizer)
+  components/               — reusable building blocks (per-file attribution headers)
+    math.py                 — symlog/symexp (canonical), two-hot discrete regression, squashed-Gaussian helpers (from nicklashansen/tdmpc2, MIT)
+    layers.py               — SimNorm, NormedLinear, vmapped Ensemble, LayerNorm-Mish mlp (from nicklashansen/tdmpc2, MIT)
+    scale.py                — RunningScale (trimmed-percentile value normalizer) (from nicklashansen/tdmpc2, MIT)
+    distributions.py        — Dreamer distribution factories: OneHotDist, TwoHot, SymlogDist, ... (from NM512/r2dreamer)
+    ema.py                  — polyak_update (in-place EMA of parameters)
+    optim/                  — LaProp optimizer (Z-T-WANG/LaProp-Optimizer, MIT), adaptive gradient clipping
   environments/
     environment.py          — Environment wrapper (holds factory kwargs, exposes make_env)
     factory.py              — make_env: gymnasium/dm_control + transforms list + gym_kwargs/gym_backend
