@@ -27,6 +27,7 @@ dependencies = [
     # Testing
     "pytest>=8.0.0",
     "pytest-timeout>=2.3.0",
+    "dm-control>=1.0.43",
     "pandas>=2.0.0",
 ]
 
