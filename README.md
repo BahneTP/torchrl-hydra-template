@@ -42,6 +42,7 @@ Two derived rules:
 | A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
+| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=der/jamesbond` |
 
 Other algorithms will follow.
 
@@ -58,6 +59,7 @@ results. Experimental metrics are tracked on
 | A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
 | TD-MPC2 | [`src/algorithms/tdmpc2/README.md`](src/algorithms/tdmpc2/README.md) |
 | DreamerV3 | [`src/algorithms/dreamer/README.md`](src/algorithms/dreamer/README.md) |
+| Rainbow / DER | [`src/algorithms/rainbow/README.md`](src/algorithms/rainbow/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:

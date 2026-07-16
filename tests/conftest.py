@@ -40,4 +40,14 @@ def load_experiment_cfg(
     overrides = [f"experiment={experiment}", *(extra_overrides or [])]
     with initialize_config_dir(config_dir=CONFIGS_DIR, version_base="1.3"):
         cfg = compose(config_name="train", overrides=overrides)
+
+    # Experiments packaged with ``@package _global_`` can define inline ``logger``
+    # blocks that beat compose-time ``logger=[]`` overrides. Honour the intent of
+    # smoke-test overrides here so W&B is not instantiated without Hydra runtime.
+    if extra_overrides and "logger=[]" in extra_overrides and cfg.get("logger"):
+        from omegaconf import OmegaConf, open_dict
+
+        with open_dict(cfg):
+            OmegaConf.update(cfg, "logger", [], merge=False)
+
     return cfg

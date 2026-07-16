@@ -1,4 +1,7 @@
-"""Atari preprocessing wrappers exposed as TorchRL transforms."""
+# MaxAndSkipEnv / EpisodicLifeEnv adapted from https://github.com/DLR-RM/stable-baselines3
+# (stable_baselines3/common/atari_wrappers.py), MIT license. Changes: life-loss
+# reset advances with one NOOP step instead of FireReset.
+"""Atari preprocessing: gym wrappers and TorchRL transforms."""
 from __future__ import annotations
 
 from collections import deque
@@ -6,6 +9,7 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
+import torch
 from tensordict import TensorDictBase
 from torchrl.envs.transforms import Transform
 
@@ -79,76 +83,55 @@ class EpisodicLifeEnv(gym.Wrapper):
         return observation, reward, terminated, truncated, info
 
 
-def wrap_atari(
-    env: gym.Env,
-    *,
-    frame_skip: int = 4,
-    terminal_on_life_loss: bool,
-) -> gym.Env:
-    """Apply the BBF-pytorch Atari wrapper order."""
-    env = MaxAndSkipEnv(env, skip=frame_skip)
-    if terminal_on_life_loss:
-        env = EpisodicLifeEnv(env)
-    return env
+class MaxAndSkipTransform(Transform):
+    """Repeat actions, sum rewards, and max-pool the last two pixel frames.
 
+    TorchRL equivalent of :class:`MaxAndSkipEnv`. Use this when episodic-life
+    handling is not required, or when no downstream gym wrapper must sit outside
+    max-and-skip (see :class:`EpisodicLifeEnv`).
 
-class AtariPreprocessingTransform(Transform):
-    """Install Atari Gym wrappers from the regular TorchRL transform list.
-
-    Max-and-skip and classic episodic-life reset semantics need access to the
-    raw Gymnasium/ALE env. This transform keeps that special handling out of the
-    generic environment factory while still making the behavior explicit and
-    composable in Hydra's ``transforms`` list.
+    Atari-100k training keeps max-and-skip at the gym level via
+    ``gymnasium_wrappers`` so :class:`EpisodicLifeEnv` wraps it and life-loss
+    is evaluated only after each aggregated agent step.
     """
 
-    def __init__(
-        self,
-        *,
-        frame_skip: int = 4,
-        terminal_on_life_loss: bool,
-    ) -> None:
+    invertible = False
+
+    def __init__(self, frame_skip: int = 4) -> None:
         super().__init__()
+        if frame_skip < 1:
+            raise ValueError("frame_skip must be >= 1.")
         self.frame_skip = frame_skip
-        self.terminal_on_life_loss = terminal_on_life_loss
-        self._is_wrapped = False
 
-    def _ensure_wrapped(self) -> None:
-        if self._is_wrapped:
-            return
-        if self.parent is None:
-            raise RuntimeError(
-                f"{type(self).__name__} must be attached to a TransformedEnv."
-            )
-
-        base_env = getattr(self.parent, "base_env", self.parent)
-        gym_env = getattr(base_env, "_env", None)
-        if gym_env is None:
-            raise RuntimeError(
-                f"{type(self).__name__} requires a TorchRL GymEnv/GymWrapper "
-                "with a raw Gymnasium env stored on `_env`."
-            )
-
-        base_env._env = wrap_atari(
-            gym_env,
-            frame_skip=self.frame_skip,
-            terminal_on_life_loss=self.terminal_on_life_loss,
-        )
-        if isinstance(base_env._env, EpisodicLifeEnv):
-            base_env._env.lives = base_env._env._lives()
-        self._is_wrapped = True
-
-    def _reset(
-        self,
-        tensordict: TensorDictBase,
-        tensordict_reset: TensorDictBase,
-    ) -> TensorDictBase:
-        self._ensure_wrapped()
-        return tensordict_reset
+    def _max_pool_pixels(self, parent, obs_buffer: list[torch.Tensor]) -> torch.Tensor:
+        if len(obs_buffer) == 2:
+            return torch.maximum(obs_buffer[0], obs_buffer[1])
+        return obs_buffer[-1]
 
     def _step(
         self,
         tensordict: TensorDictBase,
         next_tensordict: TensorDictBase,
     ) -> TensorDictBase:
-        self._ensure_wrapped()
-        return next_tensordict
+        parent = self.parent
+        if parent is None:
+            raise RuntimeError(f"{type(self).__name__} requires a parent env.")
+
+        reward_key = parent.reward_key
+        pixels_key = getattr(parent, "pixel_key", "pixels")
+        reward = next_tensordict.get(reward_key)
+        obs_buffer = [next_tensordict.get(pixels_key)]
+
+        for _ in range(self.frame_skip - 1):
+            terminated = next_tensordict.get("terminated")
+            truncated = next_tensordict.get("truncated")
+            if (terminated | truncated).any():
+                break
+            next_tensordict = parent._step(tensordict)
+            reward = reward + next_tensordict.get(reward_key)
+            obs_buffer.append(next_tensordict.get(pixels_key))
+
+        return next_tensordict.set(
+            pixels_key,
+            self._max_pool_pixels(parent, obs_buffer),
+        ).set(reward_key, reward)

@@ -10,8 +10,10 @@ affects learning lives in the algorithm.
 Per-iteration metrics emitted on logging boundaries mirror the torchrl SOTA
 DQN reference (sota-implementations/dqn/dqn_cartpole.py):
   - ``train/episode_reward``, ``train/episode_length``: mean over episodes
-    that completed inside the batch.
-  - ``train/q_values``: mean Q-value of the actions actually executed.
+    that completed since the previous log (accumulated across collector
+    batches so small ``frames_per_batch`` still reports every episode).
+  - ``train/q_values``: mean Q-value of the actions actually executed
+    (current batch).
   - ``time/collect``, ``time/step``, ``time/speed``: collector wait, in-step
     optimisation time, and frames/second for the iteration.
 """
@@ -47,6 +49,12 @@ class StepTrainer(BaseTrainer):
     def _training_loop(self) -> dict[str, float]:
         log_every = int(self.trainer_cfg.log_every_n_steps)
         metrics: dict[str, float] = {}
+        # Episode completions can land in any collector batch. With small
+        # ``frames_per_batch`` (e.g. DER's 4) almost none coincide with a
+        # logging boundary, so accumulate across the window and emit means
+        # at log time.
+        pending_episode_rewards: list[float] = []
+        pending_episode_lengths: list[float] = []
 
         collector_iter = iter(self.collector)
         while True:
@@ -67,10 +75,29 @@ class StepTrainer(BaseTrainer):
             log_step = getattr(self.algorithm, "log_step", self._step)
             pop = getattr(self.algorithm, "pop_train_metrics", None)
 
+            if pop is None:
+                ep_rewards, ep_lengths, instant = _batch_metrics(batch)
+                pending_episode_rewards.extend(ep_rewards)
+                pending_episode_lengths.extend(ep_lengths)
+            else:
+                instant = {}
+
             if self._should_log(log_every, batch_frames):
-                log_metrics = pop() if pop is not None else metrics
+                log_metrics = pop() if pop is not None else dict(metrics)
                 if pop is None:
-                    log_metrics.update(_batch_metrics(batch))
+                    if pending_episode_rewards:
+                        log_metrics["train/episode_reward"] = (
+                            sum(pending_episode_rewards)
+                            / len(pending_episode_rewards)
+                        )
+                        pending_episode_rewards.clear()
+                    if pending_episode_lengths:
+                        log_metrics["train/episode_length"] = (
+                            sum(pending_episode_lengths)
+                            / len(pending_episode_lengths)
+                        )
+                        pending_episode_lengths.clear()
+                    log_metrics.update(instant)
                 total_time = collect_time + step_time
                 log_metrics["time/collect"] = collect_time
                 log_metrics["time/step"] = step_time
@@ -91,29 +118,34 @@ class StepTrainer(BaseTrainer):
 
 
 
-def _batch_metrics(batch: TensorDict) -> dict[str, float]:
-    """Per-batch training metrics that mirror the torchrl SOTA DQN reference.
+def _batch_metrics(
+    batch: TensorDict,
+) -> tuple[list[float], list[float], dict[str, float]]:
+    """Split completed-episode stats from instantaneous batch metrics.
+
+    Episode rewards/lengths are returned as per-episode lists so the trainer
+    can accumulate them across collector batches between logging boundaries.
+    Instantaneous metrics (e.g. ``train/q_values``) are returned as a dict
+    for the current batch only.
 
     Each metric is emitted only when the underlying TensorDict key is present:
     ``RewardSum`` for ``episode_reward``, ``StepCounter`` for ``step_count``,
     and a ``QValueActor``-style policy for ``action_value`` / ``action``.
     """
     flat = batch.reshape(-1)
+    episode_rewards: list[float] = []
+    episode_lengths: list[float] = []
     out: dict[str, float] = {}
 
     done = flat.get(("next", "done"), default=None)
     if done is not None and done.bool().any():
         mask = done.bool()
-        episode_rewards = flat.get(("next", "episode_reward"), default=None)
-        if episode_rewards is not None:
-            out["train/episode_reward"] = (
-                episode_rewards[mask].float().mean().item()
-            )
-        episode_lengths = flat.get(("next", "step_count"), default=None)
-        if episode_lengths is not None:
-            out["train/episode_length"] = (
-                episode_lengths[mask].float().mean().item()
-            )
+        rewards = flat.get(("next", "episode_reward"), default=None)
+        if rewards is not None:
+            episode_rewards.extend(rewards[mask].float().reshape(-1).tolist())
+        lengths = flat.get(("next", "step_count"), default=None)
+        if lengths is not None:
+            episode_lengths.extend(lengths[mask].float().reshape(-1).tolist())
 
     # Q-value of the action actually executed.
     # Handles both one-hot encoding (action shape [B, A]) and categorical
@@ -132,4 +164,4 @@ def _batch_metrics(batch: TensorDict) -> dict[str, float]:
                 .item()
             )
 
-    return out
+    return episode_rewards, episode_lengths, out

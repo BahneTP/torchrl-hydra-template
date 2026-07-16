@@ -15,8 +15,8 @@ from contextlib import nullcontext
 from functools import partial
 from typing import Sequence
 
-# kwargs that belong on GymWrapper, not on gymnasium.make
-_TORCHRL_ONLY = {"from_pixels", "pixels_only"}
+# kwargs that belong on GymWrapper/GymEnv, not on gymnasium.make
+_TORCHRL_ONLY = {"from_pixels", "pixels_only", "categorical_action_encoding"}
 # TorchRL's name → gymnasium's name for gym.make kwargs
 _GYM_RENAME = {"frame_skip": "frameskip"}
 
