@@ -128,4 +128,5 @@ Core and continuous-action details from the
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| — | — | — | — | — | — | No finished runs tagged ``template`` yet — see [W&B table](https://wandb.ai/LatentLab/torchrl-hydra-template/table) |
+| [ppo_atari_jamesbond_train_2026-07-09_11-09-25](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/1i5pg9ib) | ALE/Jamesbond-v5 | `experiment=ppo/jamesbond` | 42 | 100,000 | 3.00 | best train/episode_reward |
+| [ppo_dmc_cheetah_run_2026-07-09_11-08-33](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/q8505ie7) | cheetah/run | `experiment=ppo/dmc_cheetah_run` | 42 | 1,000,000 | 573.0 | best train/episode_reward |

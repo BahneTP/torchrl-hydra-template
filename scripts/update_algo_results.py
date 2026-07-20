@@ -140,16 +140,19 @@ def infer_experiment_config(
         # Use the name from the experiment YAML if set; fall back to env YAML.
         # Some base env configs use name: ??? (e.g. atari_dreamer) and rely on
         # the experiment YAML to supply the actual name.
+        env_yaml = REPO_ROOT / "configs" / "environment" / f"{spec.environment_choice}.yaml"
+        env_task: str | None = None
         if spec.environment_name is not None:
             env_choice_name = spec.environment_name
         else:
-            env_yaml = REPO_ROOT / "configs" / "environment" / f"{spec.environment_choice}.yaml"
             if not env_yaml.exists():
                 continue
             env_choice_name = _read_yaml_scalar(env_yaml, "name")
             if not env_choice_name or env_choice_name == "???":
                 continue
-        if env_choice_name != env_name:
+        if env_yaml.exists():
+            env_task = _read_yaml_scalar(env_yaml, "task")
+        if not _env_names_match(env_name, env_choice_name, env_task):
             continue
 
         algo_yaml = REPO_ROOT / "configs" / "algorithm" / f"{spec.algorithm_choice}.yaml"
@@ -167,6 +170,25 @@ def infer_experiment_config(
         return f"experiment={spec.path}"
 
     return "—"
+
+
+def _env_names_match(
+    run_name: str | None,
+    yaml_name: str,
+    yaml_task: str | None = None,
+) -> bool:
+    """Match W&B env name to YAML ``name`` (and optional dm_control ``task``).
+
+    Some runs log dm_control as ``cheetah/run`` while configs keep ``name:
+    cheetah`` + ``task: run`` separately.
+    """
+    if run_name is None:
+        return False
+    if run_name == yaml_name:
+        return True
+    if yaml_task and run_name == f"{yaml_name}/{yaml_task}":
+        return True
+    return False
 
 
 def _read_yaml_scalar(path: Path, key: str) -> str | None:
