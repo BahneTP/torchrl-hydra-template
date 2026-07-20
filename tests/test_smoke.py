@@ -103,6 +103,42 @@ def test_smoke_ddpg_halfcheetah():
     assert len(metrics) > 0
 
 
+def _ppo_overrides() -> list[str]:
+    # 256 frames in 64-frame rollouts: 4 collections, 2 epochs x 2 mini-batches
+    # each (mini_batch_size=32). On-policy: no replay buffer, no warm-up.
+    return [
+        *BASE_OVERRIDES,
+        "trainer.total_frames=256",
+        "trainer.log_every_n_steps=64",
+        "algorithm.frames_per_batch=64",
+        "algorithm.mini_batch_size=32",
+        "algorithm.num_epochs=2",
+        "algorithm.anneal_frames=256",
+    ]
+
+
+def test_smoke_ppo_dmc_cheetah():
+    """PPO on DMC cheetah-run: dm_control backend, Normal + clip policy."""
+    pytest.importorskip("dm_control")  # DMC is an optional system dep
+    cfg = load_experiment_cfg("ppo/dmc_cheetah_run", _ppo_overrides())
+    from src.train import _train
+
+    metrics = _train(cfg)
+    assert isinstance(metrics, dict)
+    assert len(metrics) > 0
+
+
+def test_smoke_ppo_jamesbond():
+    """PPO on ALE/Jamesbond-v5: pixel obs, shared CNN trunk, eval-env split."""
+    pytest.importorskip("ale_py")  # ALE is an optional system dep
+    cfg = load_experiment_cfg("ppo/jamesbond", [*_ppo_overrides(), "trainer.num_envs=1"])
+    from src.train import _train
+
+    metrics = _train(cfg)
+    assert isinstance(metrics, dict)
+    assert len(metrics) > 0
+
+
 def _tdmpc2_overrides() -> list[str]:
     # 120 frames in 40-frame batches: 1 warm-up batch, then a 1-update pretrain
     # burst and 1-update batches. Tiny model (dims divisible by simnorm_dim=8)
