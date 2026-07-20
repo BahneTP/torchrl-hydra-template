@@ -125,7 +125,5 @@ episodes and raw rewards.
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [der_atari_jamesbond_2026-07-16_08-20-41](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/h02sdvvw) | ALE/Jamesbond-v5 | `—` | 1 | 100,000 | 183.3 | best train/episode_reward |
-
-No benchmark runs yet. Tag runs with `template` on W&B and refresh this table
-with `python scripts/update_algo_results.py`.
+| [der_atari_jamesbond_2026-07-16_08-20-41](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/h02sdvvw) | ALE/Jamesbond-v5 | `experiment=der/jamesbond` | 1 | 100,000 | 183.3 | best train/episode_reward |
+| [der_atari_jamesbond_2026-07-16_10-37-30](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/x85cxocm) | ALE/Jamesbond-v5 | `experiment=der/jamesbond` | 1 | 100,000 | 100.0 | best train/episode_reward |
