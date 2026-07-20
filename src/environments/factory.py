@@ -11,6 +11,7 @@ independent transform state.
 from __future__ import annotations
 
 import importlib
+import os
 from contextlib import nullcontext
 from functools import partial
 from typing import Sequence
@@ -108,25 +109,33 @@ def _instantiate_transform(cfg: dict):
     return cls(**cfg)
 
 
-def _make_dmc_env(
-    name: str,
-    task: str | None,
-    transforms: list | None,
-    device: str,
-):
-    from torchrl.envs import DMControlEnv, TransformedEnv
+def _apply_transforms(base_env, transforms: list | None):
+    from torchrl.envs import TransformedEnv
     from torchrl.envs.transforms import Compose
-
-    if task is None:
-        raise ValueError("backend='dm_control' requires a `task` (e.g. task: run)")
-
-    base_env = DMControlEnv(name, task, device=device)
 
     if not transforms:
         return base_env
 
     transform_objects = [_instantiate_transform(t) for t in transforms]
     return TransformedEnv(base_env, Compose(*transform_objects))
+
+
+def _make_dmc_env(
+    name: str,
+    task: str | None,
+    transforms: list | None,
+    device: str,
+):
+    # dm_control initialises a renderer at import time; default to headless
+    # (no rendering) unless the user configured a GL backend themselves.
+    os.environ.setdefault("MUJOCO_GL", "disabled")
+    from torchrl.envs import DMControlEnv
+
+    if task is None:
+        raise ValueError("backend='dm_control' requires a `task` (e.g. task: run)")
+
+    base_env = DMControlEnv(name, task, device=device)
+    return _apply_transforms(base_env, transforms)
 
 
 def _instantiate_gymnasium_wrapper(env, cfg: dict):
@@ -146,8 +155,7 @@ def _make_gymnasium_env(
     gymnasium_wrappers: list | None = None,
     gym_backend: str | None = None,
 ):
-    from torchrl.envs import GymEnv, GymWrapper, TransformedEnv
-    from torchrl.envs.transforms import Compose
+    from torchrl.envs import GymEnv, GymWrapper
 
     backend_ctx = nullcontext()
     if gym_backend is not None:
@@ -178,8 +186,4 @@ def _make_gymnasium_env(
         else:
             base_env = GymEnv(name, device=device, **(gym_kwargs or {}))
 
-    if not transforms:
-        return base_env
-
-    transform_objects = [_instantiate_transform(t) for t in transforms]
-    return TransformedEnv(base_env, Compose(*transform_objects))
+    return _apply_transforms(base_env, transforms)

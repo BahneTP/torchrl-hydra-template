@@ -1,0 +1,38 @@
+backend: dm_control
+name: cheetah
+task: run
+
+# DMC cheetah-run for on-policy continuous control (PPO).
+# dm_control returns a dict observation ({position, velocity}, float64);
+# CatTensors flattens it into a single "observation" vector.
+# VecNorm + ClipTransform implement the cleanRL/"37 details" observation
+# normalization + clipping tricks (values match the torchrl SOTA PPO
+# reference). Caveat: VecNorm running stats are not checkpointed, so eval
+# envs start with fresh statistics.
+# The action ClipTransform mirrors gym's ClipAction: the policy's Normal is
+# unbounded and the stored action/log-prob stay unclipped, but the env
+# receives actions clipped to the [-1, 1] action spec.
+# Reward normalization is deliberately omitted: DMC rewards are already in
+# [0, 1], and VecNorm on rewards would subtract the mean (not cleanRL's
+# return-based scaling), which can change the optimal policy.
+transforms:
+  - _target_: torchrl.envs.CatTensors
+    in_keys: [position, velocity]
+    out_key: observation
+    del_keys: true
+  - _target_: torchrl.envs.DoubleToFloat
+  - _target_: torchrl.envs.VecNorm
+    in_keys: [observation]
+    decay: 0.99999
+    eps: 0.01
+  - _target_: torchrl.envs.ClipTransform
+    in_keys: [observation]
+    low: -10.0
+    high: 10.0
+  - _target_: torchrl.envs.ClipTransform
+    in_keys_inv: [action]
+    low: -1.0
+    high: 1.0
+  - _target_: torchrl.envs.InitTracker
+  - _target_: torchrl.envs.StepCounter
+  - _target_: torchrl.envs.RewardSum

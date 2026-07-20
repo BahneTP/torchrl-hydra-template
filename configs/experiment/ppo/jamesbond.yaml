@@ -1,0 +1,23 @@
+# @package _global_
+# PPO on Atari-100k JamesBond: 100k agent steps (400k raw frames at
+# frame-skip 4), no sticky actions. Based on cleanRL ppo_atari.py with
+# num_epochs tuned for the short budget (see configs/algorithm/ppo_atari.yaml).
+# All algorithm hyperparameters live in configs/algorithm/ppo_atari.yaml;
+# only trainer-side settings are overridden here.
+defaults:
+  - override /algorithm: ppo_atari
+  - override /environment: jamesbond_train
+  - override /environment@eval_environment: jamesbond_eval
+  - override /logger: wandb
+  - _self_
+
+algorithm:
+  anneal_frames: 100_000  # = trainer.total_frames
+
+trainer:
+  total_frames: 100_000
+  seed: 42
+  accelerator: gpu
+  devices: [0]
+  num_envs: 8
+  log_every_n_steps: 5_000

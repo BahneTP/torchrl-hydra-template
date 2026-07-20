@@ -3035,6 +3035,7 @@ dependencies = [
 requires-dist = [
     { name = "ale-py", specifier = ">=0.9.0" },
     { name = "autorom", extras = ["accept-rom-license"], specifier = ">=0.6.1" },
+    { name = "dm-control", specifier = ">=1.0.0" },
     { name = "dm-control", specifier = ">=1.0.43" },
     { name = "gymnasium", extras = ["classic-control", "mujoco"], specifier = ">=0.29.0" },
     { name = "hydra-colorlog", specifier = ">=1.2.0" },
