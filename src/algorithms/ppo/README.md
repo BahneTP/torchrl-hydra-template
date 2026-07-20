@@ -23,7 +23,11 @@ built from TorchRL components (`ClipPPOLoss`, `GAE`, `ProbabilisticActor`,
 - **Multiple epochs per rollout.** Unlike A2C's single pass, PPO reuses each rollout for
   `num_epochs` epochs of shuffled mini-batches — the clipping makes this safe.
 - **GAE advantages** (λ=`gae_lambda`), computed once per rollout; value targets
-  $V^{\text{target}}_t = A_t + V(s_t)$.
+  $V^{\text{target}}_t = A_t + V(s_t)$. GAE is a mathematical bridge between Monte Carlo
+  (MC) and temporal-difference (TD) methods, and it fits well with on-policy algorithms:
+  each update has only a strictly limited batch of freshly collected transitions, so the
+  gradient signal needs to stay exceptionally clean — pure MC would introduce lots of
+  variance, while pure TD would introduce significant bias.
 - **Clipped value loss** (`clip_value`): the value prediction is clipped around the
   rollout-time value estimate with the same $\epsilon$.
 - **Stochastic actor.** Continuous: Normal with state-independent learned log-std
