@@ -1,0 +1,60 @@
+# Data-Efficient Rainbow (van Hasselt et al. 2019), matching the official
+# data-efficient preset of https://github.com/Kaixhin/Rainbow: n-step 20,
+# target update every 2000 gradient steps, small 2-layer encoder with
+# hidden dim 256, noisy-net sigma 0.1, and importance-sampling beta annealed
+# 0.4 -> 1.0. Same class as configs/algorithm/rainbow.yaml — see
+# src/algorithms/rainbow/rainbow.py.
+_target_: src.algorithms.rainbow.RainbowAlgorithm
+
+obs_key: pixels
+
+# Optimisation
+lr: 1e-4
+gamma: 0.99
+batch_size: 32
+max_grad_norm: 10.0
+
+# Exploration fallback (only used when noisy=false)
+eps_start: 1.0
+eps_end: 0.01
+annealing_frames: 250_000
+
+# Data collection
+frames_per_batch: 4
+init_random_frames: 1_600
+max_frames_per_traj: -1
+
+# Learning schedule
+num_updates: 4           # gradient updates per collector batch
+hard_update_freq: 2_000  # target net <- online every N gradient steps
+replay_capacity: 100_000
+encoder_type: data_efficient
+hidden_dim: 256
+
+# Dueling network (Wang et al. 2016)
+dueling: true
+
+# Noisy networks (Fortunato et al. 2018)
+noisy: true
+noisy_std: 0.1
+eval_noise: true
+
+# Double Q-learning (van Hasselt et al. 2016) — only applies when distributional=false
+double_dqn: true
+
+# Distributional RL / C51 (Bellemare et al. 2017)
+distributional: true
+num_atoms: 51
+v_min: -10.0
+v_max: 10.0
+
+# Prioritized experience replay (Schaul et al. 2016)
+prioritized: true
+prb_alpha: 0.5
+prb_beta_start: 0.4
+prb_beta_end: 1.0
+prb_beta_frames: 100_000
+prb_eps: 1e-6
+
+# Multi-step returns
+n_steps: 20

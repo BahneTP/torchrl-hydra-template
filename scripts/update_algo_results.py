@@ -48,6 +48,7 @@ ALGO_TARGET_PREFIXES: dict[str, str] = {
     "src.algorithms.ppo.": "ppo",
     "src.algorithms.tdmpc2.": "tdmpc2",
     "src.algorithms.dreamer.": "dreamer",
+    "src.algorithms.rainbow.": "rainbow",
 }
 
 
@@ -59,6 +60,7 @@ class ExperimentSpec:
     algorithm_choice: str  # e.g. ``dqn``, ``dqn_atari``
     environment_choice: str  # e.g. ``cartpole``, ``pong_train``
     environment_name: str | None = None  # set when the experiment YAML overrides name directly
+    atari_game: str | None = None  # set when the experiment pins ``atari.game``
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,7 @@ def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec
                 algorithm_choice=algo,
                 environment_choice=env,
                 environment_name=_parse_env_name(text),
+                atari_game=_parse_atari_game(text),
             )
         )
     return specs
@@ -110,6 +113,31 @@ def _parse_env_name(text: str) -> str | None:
         re.MULTILINE,
     )
     return match.group(1).strip().strip("'\"") if match else None
+
+
+def _parse_atari_game(text: str) -> str | None:
+    """Read ``atari.game`` from an experiment YAML when set (Atari-100k)."""
+    match = re.search(
+        r"^atari:\s*$\n(?:[ \t]+\S[^\n]*\n)*?[ \t]+game:\s*(\S[^\n]*)",
+        text,
+        re.MULTILINE,
+    )
+    return match.group(1).strip().strip("'\"") if match else None
+
+
+def _resolve_env_choice_name(
+    raw_name: str | None,
+    *,
+    atari_game: str | None,
+) -> str | None:
+    """Resolve Hydra interpolations like ``ALE/${atari.game}-v5``."""
+    if not raw_name:
+        return None
+    if "${atari.game}" in raw_name:
+        if not atari_game:
+            return None
+        return raw_name.replace("${atari.game}", atari_game)
+    return raw_name
 
 
 def algo_package_from_target(target: str | None) -> str | None:
@@ -135,19 +163,26 @@ def infer_experiment_config(
     algo_cfg = config.get("algorithm") or {}
     algo_target = algo_cfg.get("_target_")
     obs_key = algo_cfg.get("obs_key", "observation")
+    run_atari_game = (config.get("atari") or {}).get("game")
 
     for spec in registry:
         # Use the name from the experiment YAML if set; fall back to env YAML.
         # Some base env configs use name: ??? (e.g. atari_dreamer) and rely on
-        # the experiment YAML to supply the actual name.
+        # the experiment YAML to supply the actual name. Atari-100k envs use
+        # ``ALE/${atari.game}-v5`` resolved via the experiment's ``atari.game``.
         env_yaml = REPO_ROOT / "configs" / "environment" / f"{spec.environment_choice}.yaml"
         env_task: str | None = None
+        atari_game = spec.atari_game or run_atari_game
         if spec.environment_name is not None:
-            env_choice_name = spec.environment_name
+            env_choice_name = _resolve_env_choice_name(
+                spec.environment_name, atari_game=atari_game
+            )
         else:
             if not env_yaml.exists():
                 continue
-            env_choice_name = _read_yaml_scalar(env_yaml, "name")
+            env_choice_name = _resolve_env_choice_name(
+                _read_yaml_scalar(env_yaml, "name"), atari_game=atari_game
+            )
             if not env_choice_name or env_choice_name == "???":
                 continue
         if env_yaml.exists():
@@ -160,6 +195,11 @@ def infer_experiment_config(
             continue
         algo_target_expected = _read_yaml_scalar(algo_yaml, "_target_")
         if algo_target_expected != algo_target:
+            continue
+
+        # Rainbow and DER share ``RainbowAlgorithm``; disambiguate by encoder.
+        encoder_expected = _read_yaml_scalar(algo_yaml, "encoder_type")
+        if encoder_expected is not None and algo_cfg.get("encoder_type") != encoder_expected:
             continue
 
         if spec.algorithm_choice == "dqn_atari" and obs_key != "pixels":

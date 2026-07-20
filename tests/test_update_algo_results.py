@@ -29,6 +29,7 @@ def test_load_experiment_registry_includes_known_experiments(registry):
     assert "dqn/pong" in paths
     assert "ddpg/halfcheetah" in paths
     assert "a2c/halfcheetah" in paths
+    assert "der/jamesbond" in paths
 
 
 def test_infer_experiment_config_cartpole(registry):
@@ -50,6 +51,20 @@ def test_infer_experiment_config_pong(registry):
         "trainer": {"seed": 42, "total_frames": 40_000_100},
     }
     assert infer_experiment_config(config, registry) == "experiment=dqn/pong"
+
+
+def test_infer_experiment_config_der_jamesbond(registry):
+    config = {
+        "algorithm": {
+            "_target_": "src.algorithms.rainbow.RainbowAlgorithm",
+            "obs_key": "pixels",
+            "encoder_type": "data_efficient",
+        },
+        "environment": {"name": "ALE/Jamesbond-v5"},
+        "atari": {"game": "Jamesbond"},
+        "trainer": {"seed": 1, "total_frames": 100_000},
+    }
+    assert infer_experiment_config(config, registry) == "experiment=der/jamesbond"
 
 
 def test_infer_experiment_config_halfcheetah_ddpg(registry):

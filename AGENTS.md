@@ -19,8 +19,21 @@ Implemented experiments:
 | PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/jamesbond` |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
+| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=der/jamesbond` |
 
 Other algorithms will follow.
+
+The Atari-100k configs (`configs/environment/atari100k_{train,eval}.yaml`) are
+game-generic: they interpolate `ALE/${atari.game}-v5`, and each experiment sets
+the global `atari.game` key (see `configs/experiment/der/jamesbond.yaml`).
+Max-and-skip and episodic-life use `gymnasium_wrappers` (SB3-style gym wrappers
+in [`src/environments/atari_wrappers.py`](src/environments/atari_wrappers.py))
+so life loss is evaluated after each aggregated agent step; the rest of the
+stack is TorchRL transforms (`NoopResetEnv`, `GrayScale`, `Resize`, `CatFrames`,
+…). A TorchRL `MaxAndSkipTransform` is also available when episodic-life is not
+required.
+Rainbow with standard (Dopamine-style) hyperparameters is available as
+`algorithm=rainbow`; `algorithm=der` is the official data-efficient preset.
 
 ## Design principles
 
@@ -178,10 +191,12 @@ def step(self, batch: TensorDict) -> dict[str, float]:
 ```
 
 The trainer never touches the replay buffer, target network or epsilon — those are
-algorithm internals. Per-batch metrics (`train/episode_reward`,
-`train/episode_length`, `train/q_values`) and timing (`time/collect`,
-`time/step`, `time/speed`) are computed by `StepTrainer` from the collector
-batch and merged into the algorithm's metrics dict at logging boundaries.
+algorithm internals. `StepTrainer` merges timing (`time/collect`, `time/step`,
+`time/speed`) and batch metrics into the algorithm's metrics dict at logging
+boundaries. Episode returns (`train/episode_reward`, `train/episode_length`)
+are accumulated across collector batches between logs (so small
+`frames_per_batch`, e.g. DER's 4, still reports every completed episode);
+instantaneous metrics like `train/q_values` come from the current batch.
 This mirrors the torchrl SOTA DQN reference and keeps batch-level bookkeeping
 out of the algorithm.
 
@@ -375,6 +390,10 @@ src/
       planner.py            — MPPIPlanner (latent-space planning, warm-started)
       policy.py             — TensorDictModule wrapper (reads obs + is_init)
       README.md             — theory, pseudocode, W&B benchmark table
+    rainbow/
+      rainbow.py            — RainbowAlgorithm(DQNAlgorithm): dueling/noisy/distributional network
+                              + prioritized/multi-step replay, built from TorchRL's own classes
+      README.md             — theory, pseudocode, Rainbow-vs-DER presets, W&B benchmark table
   components/               — reusable building blocks (per-file attribution headers)
     math.py                 — symlog/symexp (canonical), two-hot discrete regression, squashed-Gaussian helpers (from nicklashansen/tdmpc2, MIT)
     layers.py               — SimNorm, NormedLinear, vmapped Ensemble, LayerNorm-Mish mlp (from nicklashansen/tdmpc2, MIT)
@@ -385,6 +404,7 @@ src/
   environments/
     environment.py          — Environment wrapper (holds factory kwargs, exposes make_env)
     factory.py              — make_env: gymnasium/dm_control + transforms list + gym_kwargs/gym_backend
+    atari_wrappers.py       — MaxAndSkip/EpisodicLife gym wrappers + MaxAndSkipTransform
   trainers/
     BaseTrainer.py          — BaseTrainer ABC, TrainerEvent, Callback protocol, fire_callbacks
     StepTrainer.py          — StepTrainer (Collector-driven loop)
@@ -398,6 +418,8 @@ configs/
   algorithm/ppo.yaml        — PPO HPs (cleanRL continuous-action defaults); _partial_ actor/value
   algorithm/ppo_atari.yaml  — PPO HPs (shared CNN trunk; Atari-100k tuned); _partial_ common/actor/value
   algorithm/tdmpc2.yaml     — TD-MPC2 HPs (model_size=5 preset; scalar knobs, no _partial_)
+  algorithm/rainbow.yaml    — Rainbow HPs (standard Dopamine-style values; scalar knobs, no _partial_)
+  algorithm/der.yaml        — Data-Efficient Rainbow preset (Kaixhin/Rainbow data-efficient values)
   environment/cartpole.yaml — env kwargs (name, transforms)
   environment/pong_train.yaml — Atari Pong env (training transforms incl. EndOfLife + Sign + VecNorm)
   environment/pong_eval.yaml  — Atari Pong env (eval transforms; drops EndOfLife + Sign + VecNorm)
@@ -406,6 +428,8 @@ configs/
   environment/halfcheetah.yaml — HalfCheetah-v4 (DoubleToFloat + InitTracker)
   environment/dmc_cheetah_run.yaml — dm_control cheetah-run (FrameSkip 2 + CatTensors)
   environment/dmc_cheetah_run_ppo.yaml — DMC cheetah-run for PPO (CatTensors + VecNorm + clips)
+  environment/atari100k_train.yaml — game-generic Atari-100k train env (gymnasium_wrappers: max-and-skip + episodic-life; life-loss terminals + clipped rewards)
+  environment/atari100k_eval.yaml  — game-generic Atari-100k eval env (max-and-skip only; true game-over, unclipped rewards)
   experiment/dqn/cartpole.yaml — composed CartPole experiment
   experiment/dqn/pong.yaml     — composed Atari Pong experiment
   experiment/ddpg/halfcheetah.yaml — composed DDPG HalfCheetah experiment
@@ -413,12 +437,13 @@ configs/
   experiment/ppo/dmc_cheetah_run.yaml — composed PPO DMC cheetah-run experiment (1M frames)
   experiment/ppo/jamesbond.yaml — composed PPO Atari-100k JamesBond experiment (100k steps)
   experiment/tdmpc2/cheetah_run.yaml — composed TD-MPC2 DMC cheetah-run experiment
+  experiment/der/jamesbond.yaml — composed DER Atari-100k Jamesbond experiment (sets atari.game)
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
 tests/
   test_smoke.py             — smoke tests: DQN (CartPole, Pong), DDPG, A2C, PPO (DMC cheetah,
-                              JamesBond), TD-MPC2
+                              JamesBond), TD-MPC2, DER
 ```
 
 ## Documentation
@@ -472,6 +497,7 @@ python src/train.py experiment=a2c/halfcheetah     # A2C on-policy continuous co
 python src/train.py experiment=ppo/dmc_cheetah_run # PPO on DMC cheetah-run (1M frames)
 python src/train.py experiment=ppo/jamesbond       # PPO on Atari-100k JamesBond (100k steps, GPU)
 python src/train.py experiment=tdmpc2/cheetah_run  # TD-MPC2 model-based control (1M frames, GPU)
+python src/train.py experiment=der/jamesbond  # DER on Atari-100k Jamesbond (100k frames, GPU)
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
 

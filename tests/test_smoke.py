@@ -201,6 +201,34 @@ def test_smoke_a2c_halfcheetah():
     assert len(metrics) > 0
 
 
+def _der_overrides() -> list[str]:
+    # 40 frames in 4-frame batches: 2 warm-up batches then 8 update batches.
+    # batch_size=4/num_updates=1 keeps sampling cheap; replay_capacity=200 and
+    # n_steps=3 keep MultiStepTransform's internal per-episode buffer small.
+    return [
+        *BASE_OVERRIDES,
+        "trainer.total_frames=40",
+        "trainer.log_every_n_steps=8",
+        "algorithm.frames_per_batch=4",
+        "algorithm.init_random_frames=8",
+        "algorithm.batch_size=4",
+        "algorithm.num_updates=1",
+        "algorithm.replay_capacity=200",
+        "algorithm.n_steps=3",
+    ]
+
+
+def test_smoke_der_jamesbond():
+    """DER on ALE/Jamesbond-v5 (Atari-100k): C51 + noisy nets + prioritized replay."""
+    pytest.importorskip("ale_py")  # ALE is an optional system dep
+    cfg = load_experiment_cfg("der/jamesbond", _der_overrides())
+    from src.train import _train
+
+    metrics = _train(cfg)
+    assert isinstance(metrics, dict)
+    assert len(metrics) > 0
+
+
 def _dreamer_overrides() -> list[str]:
     # Constraint: batch_size * batch_length >= train_ratio (128) so that
     # frames_per_batch = (batch_size*batch_length/train_ratio) >= 1.
