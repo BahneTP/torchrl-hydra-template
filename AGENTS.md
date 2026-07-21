@@ -20,6 +20,7 @@ Implemented experiments:
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=der/jamesbond` |
+| BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/jamesbond` |
 
 Other algorithms will follow.
 
@@ -34,6 +35,12 @@ stack is TorchRL transforms (`NoopResetEnv`, `GrayScale`, `Resize`, `CatFrames`,
 required.
 Rainbow with standard (Dopamine-style) hyperparameters is available as
 `algorithm=rainbow`; `algorithm=der` is the official data-efficient preset.
+BBF (`algorithm=bbf`) builds on the same Atari-100k stack but subclasses
+`BaseAlgorithm` directly: it hand-writes the C51 target and reuses a torchrl
+`PrioritizedSliceSampler` for contiguous-window sampling (n-step computed at
+sample time), adding SPR self-prediction, an Impala-CNN ×4 encoder, periodic
+shrink-and-perturb resets, annealed n-step/discount, DrQ augmentation and an EMA
+target. It requires `trainer.num_envs=1` (a single contiguous stream).
 
 ## Design principles
 
@@ -394,6 +401,11 @@ src/
       rainbow.py            — RainbowAlgorithm(DQNAlgorithm): dueling/noisy/distributional network
                               + prioritized/multi-step replay, built from TorchRL's own classes
       README.md             — theory, pseudocode, Rainbow-vs-DER presets, W&B benchmark table
+    bbf/
+      bbf.py                — BBFAlgorithm(BaseAlgorithm): hand-written C51 + SPR + shrink-and-perturb
+                              resets + annealed n-step/discount over a torchrl PrioritizedSliceSampler buffer
+      networks.py           — BBFNetwork: Impala-CNN ×4 encoder, transition model, SPR projection/predictor, dueling C51 heads
+      README.md             — theory, update-rule math, pseudocode→code, deviations, W&B benchmark table
   components/               — reusable building blocks (per-file attribution headers)
     math.py                 — symlog/symexp (canonical), two-hot discrete regression, squashed-Gaussian helpers (from nicklashansen/tdmpc2, MIT)
     layers.py               — SimNorm, NormedLinear, vmapped Ensemble, LayerNorm-Mish mlp (from nicklashansen/tdmpc2, MIT)
@@ -420,6 +432,7 @@ configs/
   algorithm/tdmpc2.yaml     — TD-MPC2 HPs (model_size=5 preset; scalar knobs, no _partial_)
   algorithm/rainbow.yaml    — Rainbow HPs (standard Dopamine-style values; scalar knobs, no _partial_)
   algorithm/der.yaml        — Data-Efficient Rainbow preset (Kaixhin/Rainbow data-efficient values)
+  algorithm/bbf.yaml        — BBF HPs (official BBF.gin RR2 preset; scalar knobs, no _partial_)
   environment/cartpole.yaml — env kwargs (name, transforms)
   environment/pong_train.yaml — Atari Pong env (training transforms incl. EndOfLife + Sign + VecNorm)
   environment/pong_eval.yaml  — Atari Pong env (eval transforms; drops EndOfLife + Sign + VecNorm)
@@ -438,12 +451,16 @@ configs/
   experiment/ppo/jamesbond.yaml — composed PPO Atari-100k JamesBond experiment (100k steps)
   experiment/tdmpc2/cheetah_run.yaml — composed TD-MPC2 DMC cheetah-run experiment
   experiment/der/jamesbond.yaml — composed DER Atari-100k Jamesbond experiment (sets atari.game)
+  experiment/bbf/jamesbond.yaml — composed BBF Atari-100k Jamesbond experiment (RR2; num_envs=1)
+  experiment/bbf/jamesbond_rr8.yaml — BBF flagship RR8 variant (reset_interval=40_000)
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
 tests/
   test_smoke.py             — smoke tests: DQN (CartPole, Pong), DDPG, A2C, PPO (DMC cheetah,
-                              JamesBond), TD-MPC2, DER
+                              JamesBond), TD-MPC2, DER, BBF, DreamerV3
+  test_bbf_buffer.py        — BBF buffer/sampling unit tests (n-step masking, C51 projection,
+                              PrioritizedSliceSampler windows); no env, no ale_py
 ```
 
 ## Documentation
@@ -498,6 +515,7 @@ python src/train.py experiment=ppo/dmc_cheetah_run # PPO on DMC cheetah-run (1M 
 python src/train.py experiment=ppo/jamesbond       # PPO on Atari-100k JamesBond (100k steps, GPU)
 python src/train.py experiment=tdmpc2/cheetah_run  # TD-MPC2 model-based control (1M frames, GPU)
 python src/train.py experiment=der/jamesbond  # DER on Atari-100k Jamesbond (100k frames, GPU)
+python src/train.py experiment=bbf/jamesbond  # BBF on Atari-100k Jamesbond (100k frames, RR2, GPU)
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
 

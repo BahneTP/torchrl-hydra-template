@@ -1,0 +1,30 @@
+# @package _global_
+# BBF on ALE/Jamesbond-v5 (Atari-100k), paper flagship replay_ratio=8.
+# Reset interval scales with the replay ratio (40_000 grad steps for RR8).
+# ~4x the compute of the RR2 default; an A100-class GPU is recommended.
+defaults:
+  - override /algorithm: bbf
+  - override /environment: atari100k_train
+  - override /environment@eval_environment: atari100k_eval
+  - override /logger: wandb
+  - _self_
+atari:
+  game: Jamesbond
+algorithm:
+  replay_ratio: 8
+  reset_interval: 40_000
+logger:
+  - _target_: src.callbacks.logger.WandBLogger
+    project: torchrl-hydra-template
+    entity: null
+    name: bbf_atari_jamesbond_rr8_${now:%Y-%m-%d_%H-%M-%S}
+    tags: []
+    mode: online
+    save_dir: ${paths.log_dir}/wandb/
+trainer:
+  total_frames: 100_000
+  seed: 1
+  accelerator: gpu
+  devices: [0]
+  num_envs: 1
+  log_every_n_steps: 1_000

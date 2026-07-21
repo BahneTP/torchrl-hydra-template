@@ -1,0 +1,26 @@
+# @package _global_
+# BBF on ALE/Jamesbond-v5 (Atari-100k), replay_ratio=2 official-config default.
+# Flagship replay_ratio=8 variant: configs/experiment/bbf/jamesbond_rr8.yaml.
+defaults:
+  - override /algorithm: bbf
+  - override /environment: atari100k_train
+  - override /environment@eval_environment: atari100k_eval
+  - override /logger: wandb
+  - _self_
+atari:
+  game: Jamesbond
+logger:
+  - _target_: src.callbacks.logger.WandBLogger
+    project: torchrl-hydra-template
+    entity: null
+    name: bbf_atari_jamesbond_${now:%Y-%m-%d_%H-%M-%S}
+    tags: []
+    mode: online
+    save_dir: ${paths.log_dir}/wandb/
+trainer:
+  total_frames: 100_000
+  seed: 1
+  accelerator: gpu
+  devices: [0]
+  num_envs: 1              # BBF requires a single contiguous stream
+  log_every_n_steps: 1_000
