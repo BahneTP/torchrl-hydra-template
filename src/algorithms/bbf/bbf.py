@@ -14,8 +14,9 @@ choices:
     3. Periodic resets       every ``reset_interval`` gradient steps the heads
                              are re-initialised and encoder + transition model
                              are interpolated 50% towards random weights
-                             (shrink-and-perturb), fighting overfitting and
-                             plasticity loss at high replay ratios.
+                             (shrink-and-perturb; applied to the online and
+                             EMA target networks alike), fighting overfitting
+                             and plasticity loss at high replay ratios.
     4. Annealed update       after every reset, the n-step horizon decays
                              exponentially 10 -> 3 and the discount rises
                              0.97 -> 0.997 over ``cycle_steps`` gradient steps.
@@ -526,16 +527,19 @@ class BBFAlgorithm(BaseAlgorithm):
         """Reset: heads fully re-initialised; encoder + transition model are
         interpolated ``shrink_factor`` towards their old weights and
         ``perturb_factor`` towards a fresh random init. The EMA target network
-        is left untouched (it carries knowledge across the reset), and the
-        optimiser state is re-created, both as in the official release."""
-        fresh = self._make_network().to(self.device)
-        for (name, p), (_, q) in zip(
-            self.network.named_parameters(), fresh.named_parameters()
-        ):
-            if name.startswith(("encoder.", "transition_model.")):
-                p.mul_(self.shrink_factor).add_(q, alpha=self.perturb_factor)
-            else:
-                p.copy_(q)
+        gets the same treatment against its own independent fresh init
+        (official ``jit_reset`` with ``reset_target=True``, the BBF default),
+        and the optimiser state is re-created. Knowledge is carried across the
+        reset by the replay buffer and the interpolated encoder weights."""
+        for net in (self.network, self.target_network):
+            fresh = self._make_network().to(self.device)
+            for (name, p), (_, q) in zip(
+                net.named_parameters(), fresh.named_parameters()
+            ):
+                if name.startswith(("encoder.", "transition_model.")):
+                    p.mul_(self.shrink_factor).add_(q, alpha=self.perturb_factor)
+                else:
+                    p.copy_(q)
         self.optimizer = self._make_optimizer()
         self._steps_since_reset = 0
         self._num_resets += 1

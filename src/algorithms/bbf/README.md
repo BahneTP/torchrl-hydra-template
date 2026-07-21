@@ -28,7 +28,7 @@ kept stable by six interacting design choices:
 | --- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
 | 1   | **Bigger network**                       | Impala-CNN ResNet encoder at 4× width. Scaling the encoder *only helps* once 2–6 are in place.                                                                                                                     | Espeholt et al. 2018                              |
 | 2   | **SPR auxiliary loss**                   | Predict your own future latent representations $k=1..5$ steps ahead through a learned transition model (BYOL-style, no negatives). Dense self-supervised signal next to the sparse reward.                         | Schwarzer et al. 2021                             |
-| 3   | **Periodic resets (shrink-and-perturb)** | Every `reset_interval` gradient steps: fully re-initialise heads; interpolate encoder + transition model 50% towards random weights. Restores plasticity; the replay buffer and EMA target carry knowledge across. | Ash & Adams 2020; D'Oro et al. 2023 (SR-SPR)      |
+| 3   | **Periodic resets (shrink-and-perturb)** | Every `reset_interval` gradient steps: fully re-initialise heads; interpolate encoder + transition model 50% towards random weights — applied to the online **and** EMA target networks (official `reset_target=True`). Restores plasticity; the replay buffer carries knowledge across. | Ash & Adams 2020; D'Oro et al. 2023 (SR-SPR)      |
 | 4   | **Annealed update horizon & discount**   | After each reset, n-step decays exponentially $10 \to 3$ and $\gamma$ rises $0.97 \to 0.997$ over 10k gradient steps. Fast-but-biased learning right after a reset, low-bias at convergence.                       | BBF                                               |
 | 5   | **Regularisation everywhere**            | AdamW weight decay 0.1; DrQ augmentation (random $\pm 4$ px shift + intensity jitter) on *every* replayed frame; EMA target network ($\tau=0.005$, updated every gradient step).                                   | Kostrikov et al. 2021 (DrQ)                       |
 | 6   | **Rainbow backbone**                     | C51 distributional RL (51 atoms on $[-10, 10]$), Double DQN action selection, dueling heads, prioritized replay (priority $=$ C51 loss). NoisyNets are *removed* (ε-greedy → greedy after 2k steps).               | Hessel et al. 2018; van Hasselt et al. 2019 (DER) |
@@ -70,7 +70,7 @@ for each env step t (100,000 total):
 
     repeat replay_ratio times:
         if grad_steps since reset == reset_interval:
-            heads <- random init                       # full reset            | _shrink_and_perturb
+            heads <- random init                  # online + target networks   | _shrink_and_perturb
             encoder, transition <- 0.5*old + 0.5*random  # shrink & perturb
             optimizer state <- fresh
         n     <- exp-anneal 10 -> 3   over 10k grad steps                        | _current_horizon
