@@ -12,7 +12,9 @@ One module, :class:`BBFNetwork`, owns every learned component:
 Mirrors ``spr_networks.py`` of the official JAX release
 (google-research/bigger_better_faster): ReLU activations, max-pool 3x3/2 per
 stage, two residual blocks per stage, per-sample min-max renormalisation of
-latents, and ``forward()`` returning scalar Q-values so the module drops into
+latents, xavier-uniform kernels with zero biases (the official initializer;
+this also sets the scale of shrink-and-perturb noise and freshly reset
+heads), and ``forward()`` returning scalar Q-values so the module drops into
 ``torchrl.modules.QValueActor`` unchanged.
 """
 from __future__ import annotations
@@ -23,6 +25,15 @@ from typing import Sequence
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+def init_xavier(module: nn.Module) -> None:
+    """Official BBF initialisation: xavier-uniform kernels, zero biases
+    (flax ``nn.initializers.xavier_uniform()`` + default zero bias init)."""
+    if isinstance(module, (nn.Conv2d, nn.Linear)):
+        nn.init.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
 
 
 def renormalize(x: torch.Tensor) -> torch.Tensor:
@@ -152,6 +163,7 @@ class BBFNetwork(nn.Module):
         self.predictor = nn.Linear(hidden_dim, hidden_dim)
         self.advantage = nn.Linear(hidden_dim, num_actions * num_atoms)
         self.value = nn.Linear(hidden_dim, num_atoms)
+        self.apply(init_xavier)
         self.register_buffer("support", torch.linspace(v_min, v_max, num_atoms))
 
     # --- representation ------------------------------------------------
