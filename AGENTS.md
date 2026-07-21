@@ -452,7 +452,7 @@ configs/
   experiment/tdmpc2/cheetah_run.yaml — composed TD-MPC2 DMC cheetah-run experiment
   experiment/der/jamesbond.yaml — composed DER Atari-100k Jamesbond experiment (sets atari.game)
   experiment/bbf/jamesbond.yaml — composed BBF Atari-100k Jamesbond experiment (RR2; num_envs=1)
-  experiment/bbf/jamesbond_rr8.yaml — BBF flagship RR8 variant (reset_interval=40_000)
+  experiment/bbf/jamesbond_rr8.yaml — BBF flagship RR8 variant (same 40k-grad-step reset cadence)
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml

@@ -1,6 +1,7 @@
 # @package _global_
 # BBF on ALE/Jamesbond-v5 (Atari-100k), paper flagship replay_ratio=8.
-# Reset interval scales with the replay ratio (40_000 grad steps for RR8).
+# The reset cadence stays 40k gradient steps (= 5k env steps at RR8), which
+# is already the algorithm default.
 # ~4x the compute of the RR2 default; an A100-class GPU is recommended.
 defaults:
   - override /algorithm: bbf
@@ -12,7 +13,6 @@ atari:
   game: Jamesbond
 algorithm:
   replay_ratio: 8
-  reset_interval: 40_000
 logger:
   - _target_: src.callbacks.logger.WandBLogger
     project: torchrl-hydra-template

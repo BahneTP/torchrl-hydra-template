@@ -38,8 +38,10 @@ dueling: true
 spr_weight: 5.0
 spr_depth: 5
 
-# Periodic shrink-and-perturb resets
-reset_interval: 20_000     # gradient steps (40_000 for replay_ratio=8)
+# Periodic shrink-and-perturb resets. The official gin's reset_every=20_000
+# counts environment steps, i.e. 40k gradient steps at RR2 — and the paper
+# resets every 40k gradient steps at any replay ratio.
+reset_interval: 40_000     # gradient steps
 shrink_factor: 0.5
 perturb_factor: 0.5
 no_resets_after: 0         # gradient steps; 0 = never stop resetting

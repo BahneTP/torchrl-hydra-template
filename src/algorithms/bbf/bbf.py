@@ -45,7 +45,11 @@ release, ``configs/BBF.gin``):
     bootstrap boundary; there is no separate ``end-of-life`` key.
 
 Hyperparameter defaults follow ``configs/BBF.gin`` at ``replay_ratio=2``; the
-paper's flagship setting is ``replay_ratio=8`` with ``reset_interval=40_000``.
+paper's flagship setting is ``replay_ratio=8``. Note the gin's
+``reset_every = 20_000`` counts *environment* steps (checked once per
+``training_steps`` in the official ``_train_step``), i.e. resets happen every
+40k gradient steps at any replay ratio — ``reset_interval`` below is in
+gradient steps, so it stays 40_000 for both RR2 and RR8.
 """
 from __future__ import annotations
 
@@ -101,7 +105,7 @@ class BBFAlgorithm(BaseAlgorithm):
         spr_weight: float = 5.0,              # 0 disables SPR
         spr_depth: int = 5,                   # prediction horizon k
         # --- Resets (shrink-and-perturb) --------------------------------------
-        reset_interval: int = 20_000,         # grad steps; 40_000 for replay_ratio=8; 0 disables
+        reset_interval: int = 40_000,         # grad steps (paper: 40k at any RR); 0 disables
         shrink_factor: float = 0.5,           # keep 50% of encoder/transition weights
         perturb_factor: float = 0.5,
         no_resets_after: int = 0,             # grad steps; 0 = never stop resetting
