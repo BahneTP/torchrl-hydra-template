@@ -72,7 +72,7 @@ for each env step t (100,000 total):
         if grad_steps since reset == reset_interval:
             heads <- random init                  # online + target networks   | _shrink_and_perturb
             encoder, transition <- 0.5*old + 0.5*random  # shrink & perturb
-            optimizer state <- fresh
+            optimizer state <- fresh (Adam moments kept for encoder/transition)
         n     <- exp-anneal 10 -> 3   over 10k grad steps                        | _current_horizon
         gamma <- exp-anneal .97->.997 over 10k grad steps                        | _current_gamma
         sample prioritized window (s_t..s_t+10, a, r, cut), IS weights w         | PrioritizedSliceSampler

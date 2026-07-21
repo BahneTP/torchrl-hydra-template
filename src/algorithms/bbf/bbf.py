@@ -529,8 +529,11 @@ class BBFAlgorithm(BaseAlgorithm):
         ``perturb_factor`` towards a fresh random init. The EMA target network
         gets the same treatment against its own independent fresh init
         (official ``jit_reset`` with ``reset_target=True``, the BBF default),
-        and the optimiser state is re-created. Knowledge is carried across the
-        reset by the replay buffer and the interpolated encoder weights."""
+        and the optimiser state is re-created — except the Adam moments of the
+        shrink-and-perturbed submodules, which the official reset copies over
+        (``keys_to_copy = ("encoder", "transition_model")``). Knowledge is
+        carried across the reset by the replay buffer, the interpolated
+        encoder weights and their optimiser moments."""
         for net in (self.network, self.target_network):
             fresh = self._make_network().to(self.device)
             for (name, p), (_, q) in zip(
@@ -540,7 +543,15 @@ class BBFAlgorithm(BaseAlgorithm):
                     p.mul_(self.shrink_factor).add_(q, alpha=self.perturb_factor)
                 else:
                     p.copy_(q)
+        old_state = self.optimizer.state
         self.optimizer = self._make_optimizer()
+        for name, p in self.network.named_parameters():
+            if name.startswith(("encoder.", "transition_model.")) and p in old_state:
+                state = old_state[p]
+                # optax's shared step count restarts at 0 in the official
+                # reset, so Adam's bias correction re-warms up here too.
+                state["step"] = torch.zeros_like(state["step"])
+                self.optimizer.state[p] = state
         self._steps_since_reset = 0
         self._num_resets += 1
 
