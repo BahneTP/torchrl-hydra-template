@@ -65,7 +65,7 @@ with per-sample importance weights $w$; priorities are updated from $L_{\text{RL
 
 ```
 for each env step t (100,000 total):
-    a_t ~ eps-greedy(Q_online)            # eps: 1 -> 0 over first 2k steps   | EGreedyModule
+    a_t ~ eps-greedy(Q_target)            # eps: 1 -> 0 over first 2k steps   | EGreedyModule
     store (s_t, a_t, r_t, cut_t)          # cut = life loss / terminal / reset | _store -> replay_buffer.extend
 
     repeat replay_ratio times:
@@ -84,7 +84,9 @@ for each env step t (100,000 total):
 ```
 
 - `setup()` builds the online + EMA `BBFNetwork`, the `QValueActor` explore/eval
-policies, and the replay buffer; `step()` stores the batch then runs
+policies — which act with the EMA **target** network in train and eval alike
+(official `target_action_selection = True`) — and the replay buffer;
+`step()` stores the batch then runs
 `round(replay_ratio · frames)` updates; `get_policy()` returns the ε=0.001 eval
 policy (`FixedEpsilonGreedy`, which also fires under `ExplorationType.MODE`).
 - **Subclasses** `BaseAlgorithm` **directly** (not `RainbowAlgorithm`): BBF overrides

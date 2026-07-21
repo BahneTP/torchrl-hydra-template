@@ -216,9 +216,15 @@ class BBFAlgorithm(BaseAlgorithm):
         self.target_network.requires_grad_(False)
         self.support = self.network.support.to(self.device)
 
-        # Policies: greedy actor for eval, eps-greedy for collection.
+        # Policies: greedy actor for eval, eps-greedy for collection. Both act
+        # with the EMA *target* network, as in the official release
+        # (``BBF.gin: target_action_selection = True``, applied in train and
+        # eval mode alike): the target changes smoothly under policy churn and
+        # recovers via EMA after each shrink-and-perturb reset, whereas the
+        # online net's heads are freshly random. The EMA update mutates the
+        # target's parameters in place, so this actor always sees them current.
         self.q_actor = QValueActor(
-            module=self.network, spec=action_spec, in_keys=[self.obs_key]
+            module=self.target_network, spec=action_spec, in_keys=[self.obs_key]
         ).to(self.device)
         self.greedy_module = EGreedyModule(
             spec=action_spec,
