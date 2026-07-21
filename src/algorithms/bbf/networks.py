@@ -162,12 +162,15 @@ class BBFNetwork(nn.Module):
         return renormalize(z) if self.renorm else z
 
     def project(self, latent: torch.Tensor) -> torch.Tensor:
-        """Spatial latent -> hidden_dim vector (first Q-head layer, post-ReLU).
+        """Spatial latent -> hidden_dim vector (first Q-head layer, pre-ReLU).
 
         Used both as the Q-head trunk and as the SPR projection (the SPR
         design: tie the projection to the value function's representation).
+        As in the official release, the SPR branches (``predict`` and the
+        target's ``encode_project``) consume this raw linear output; only the
+        Q-head applies a ReLU on top (``q_logits``).
         """
-        return F.relu(self.projection(latent.flatten(1)))
+        return self.projection(latent.flatten(1))
 
     def predict(self, projection: torch.Tensor) -> torch.Tensor:
         """SPR predictor head (online branch only)."""
@@ -177,7 +180,7 @@ class BBFNetwork(nn.Module):
 
     def q_logits(self, latent: torch.Tensor) -> torch.Tensor:
         """Spatial latent -> C51 logits (B, A, num_atoms)."""
-        h = self.project(latent)
+        h = F.relu(self.project(latent))
         adv = self.advantage(h).view(-1, self.num_actions, self.num_atoms)
         if not self.dueling:
             return adv
