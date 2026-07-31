@@ -22,7 +22,7 @@ from src.algorithms.dreamer.model import (
 class DreamerPolicy(nn.Module):
     """Wraps the Dreamer model to manage the RSSM hidden states across time steps."""
 
-    def __init__(self, model: Dreamer, explore: bool = True):
+    def __init__(self, model: nn.Module, explore: bool = True):
         super().__init__()
         self.model = model
         self.explore = explore
@@ -89,7 +89,7 @@ def _patch_devices(cfg: DictConfig, device_str: str) -> None:
 
 
 class DreamerAlgorithm(BaseAlgorithm):
-    """Stateful algorithm wrapper for DreamerV3/EfficientDreamer."""
+    """Stateful algorithm wrapper for DreamerV3 and its variants (R2Dreamer, DreamerPro)."""
 
     def __init__(
         self,
@@ -169,7 +169,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         self.replay_buffer = Buffer(self.buffer_config)
 
     def step(self, td: TensorDict) -> dict[str, float]:
-        """Receives a single frame from the StatefulTrainer and conditionally updates."""
+        """Receives a single collector batch from the trainer and conditionally updates."""
 
         # 1. Append directly to the sequence buffer.
         self.replay_buffer.add_transition(td)

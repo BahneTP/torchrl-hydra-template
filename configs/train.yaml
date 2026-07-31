@@ -10,7 +10,7 @@ defaults:
   - override hydra/hydra_logging: colorlog
 
 trainer:
-  _target_: src.trainers.StepTrainer   # or src.trainers.EpisodeTrainer
+  _target_: src.trainers.StepTrainer
   accelerator: cpu        # "cpu" | "gpu" | "mps"
   devices: [0]            # GPU indices; ignored when accelerator=cpu
   seed: 42

@@ -44,7 +44,7 @@ from torchrl.objectives import DistributionalDQNLoss, DQNLoss, HardUpdate
 from src.algorithms.dqn.dqn import DQNAlgorithm
 
 # Conv encoder shapes. "dqn" is the standard NatureDQN encoder (Mnih et al.
-# 2015, matches src.networks.NatureDQN); "data_efficient" is the smaller
+# 2015, matches src.components.networks.NatureDQN); "data_efficient" is the smaller
 # 2-layer encoder from Data-Efficient Rainbow (van Hasselt et al. 2019),
 # tuned for the 100k-frame Atari-100k budget.
 _ENCODER_CNN_KWARGS: dict[str, dict] = {

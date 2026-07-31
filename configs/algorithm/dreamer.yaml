@@ -1,11 +1,10 @@
-_target_: src.algorithms.dreamer.dreamer.DreamerAlgorithm
+_target_: src.algorithms.dreamer.DreamerAlgorithm
 _recursive_: false   # dreamer_config has _target_ but is passed as DictConfig, not instantiated here
 
 
 # Wrapper Parameters (DreamerAlgorithm)
 train_ratio: 128 # Divides Batch_Size * Batch_Length to determine the number of updates per data collection phase (how many frames till next update)
-action_repeat: 4  # game frames per agent step; AtariPreprocessing(frame_skip=4) in atari_dreamer.yaml
-device: ${trainer.accelerator}
+action_repeat: 4  # game frames per agent step; must match the env's AtariPreprocessing(frame_skip=...)
 agent_video_log_every: 50_000  # log agent gameplay video every N environment frames
 agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues across episode resets)
 benchmark_frames: 400_000       # eval/score_* cutoff in game frames (Atari100k: 100k agent steps x action_repeat); later episodes only show on episode/score
