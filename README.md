@@ -13,7 +13,7 @@ _Suggestions are always welcome!_
 
 Reinforcement learning code tends to become monolithic — training loop, environment
 setup, network construction, replay buffer, and update rule all tangled together.
-This template enforces a hard split into three components, inspired by how
+This template enforces a hard split into four components, inspired by how
 [PyTorch Lightning](https://github.com/Lightning-AI/pytorch-lightning) structures
 deep learning code:
 
@@ -21,9 +21,10 @@ deep learning code:
 |-----------------|-----------------------------------------------------------------------|--------------------------|
 | **Algorithm**   | Everything that affects learning: network, replay buffer, loss, optimiser, exploration, target-net schedule, collector config. **All hyperparameters live here.** | `LightningModule`        |
 | **Trainer**     | The loop. Device placement, data collection, logging, callbacks, checkpointing. **No knobs that affect reward.** | `Trainer`                |
-| **Environment** | Fixed task definition: env name + transform list. Independent of algorithm. | `LightningDataModule`    |
+| **Environment** | One benchmark: backend, preprocessing stack, and a `task` key naming the task within it. Independent of algorithm. | `LightningDataModule`    |
+| **Experiment**  | One algorithm × one benchmark, plus everything that depends on the *task*: which network, what budget, which schedules. | —                        |
 
-Two derived rules:
+Three derived rules:
 
 1. **RL algorithm code reads like the paper.** `step()` is short and corresponds to
    the update equations. The DQN file looks like Mnih et al. (2015)'s pseudocode,
@@ -31,6 +32,10 @@ Two derived rules:
 2. **Anything that influences reward or sample efficiency lives in the algorithm.**
    If a knob shifts the learning curve, it goes on `__init__`. The trainer cannot
    silently change behaviour.
+3. **The algorithm config knows nothing about the task.** Pixel networks, training
+   budgets and exploration schedules are properties of a benchmark, not of DQN, so
+   they live in the experiment. That is what keeps one `configs/algorithm/dqn.yaml`
+   serving both CartPole and Atari.
 
 **Implemented experiments:**
 
@@ -319,7 +324,8 @@ configs/
 ├── trainer/
 │   ├── default.yaml        <- the loop: seed, total_frames, num_envs, logging
 │   ├── cpu.yaml
-│   └── gpu.yaml            <- accelerator: gpu (set devices=[N] on the CLI)
+│   ├── gpu.yaml            <- accelerator: gpu (set devices=[N] on the CLI)
+│   └── eval.yaml           <- total_frames: 0 (used by eval.yaml)
 ├── algorithm/              <- one config per algorithm class; no env specifics
 │   ├── dqn.yaml            <- DQN HPs
 │   ├── ddpg.yaml           <- DDPG HPs

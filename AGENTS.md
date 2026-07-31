@@ -426,7 +426,7 @@ src/
   callbacks/                — ProgressCallback, CheckpointCallback, WandBLogger, TensorBoardLogger
   utils/                    — device resolution, seeding, callback builders
 configs/
-  trainer/{default,cpu,gpu}.yaml — the loop (seed, total_frames, num_envs, logging, accelerator)
+  trainer/{default,cpu,gpu,eval}.yaml — the loop (seed, total_frames, num_envs, logging, accelerator)
   algorithm/dqn.yaml        — DQN HPs; _partial_ replay_buffer + `network` group
   algorithm/ddpg.yaml       — DDPG HPs; _partial_ actor/critic/noise
   algorithm/a2c.yaml        — A2C HPs; _partial_ actor/value
