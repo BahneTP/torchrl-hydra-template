@@ -1,26 +1,11 @@
+defaults:
+  - policy: nature_cnn_categorical
+  - _self_
+
 _target_: src.algorithms.ppo.PPOAlgorithm
 
 # PPO on Atari pixels: shared Nature-CNN trunk + policy/value heads
 # (cleanRL's ppo_atari.py agent), tuned for the Atari-100k budget.
-common_network:
-  _partial_: true
-  _target_: src.components.networks.make_nature_cnn_trunk
-  num_cells_cnn: [32, 64, 64]
-  kernel_sizes: [8, 4, 3]
-  strides: [4, 2, 1]
-  out_features: 512
-  activation_class:
-    _target_: hydra.utils.get_class
-    path: torch.nn.ReLU
-
-actor_network:
-  _partial_: true
-  _target_: src.components.networks.make_categorical_head
-
-value_network:
-  _partial_: true
-  _target_: src.components.networks.make_value_head
-
 obs_key: pixels
 
 # Optimisation — cleanRL ppo_atari.py values except num_epochs: 10 (up from
