@@ -7,7 +7,7 @@ defaults:
   - override /algorithm: ppo
   - override /algorithm/policy: nature_cnn_categorical
   - override /environment: ale
-  - override /environment@eval_environment: ale_eval
+  - override /evaluation: ale
   - override /trainer: gpu
   - override /logger: wandb
   - _self_
@@ -16,9 +16,10 @@ environment:
   task: Jamesbond
   gym_kwargs:
     repeat_action_probability: 0.0  # Atari-100k protocol: no sticky actions
-eval_environment:
-  gym_kwargs:
-    repeat_action_probability: 0.0
+evaluation:
+  eval_environment:
+    gym_kwargs:
+      repeat_action_probability: 0.0
 
 # Pixel observations and the cleanRL Atari schedule. These are properties of
 # the task and budget, not of PPO, so they live here rather than in

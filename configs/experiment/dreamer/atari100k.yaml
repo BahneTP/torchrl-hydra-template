@@ -6,6 +6,7 @@ defaults:
   - /algorithm/dreamer: 200m
   - override /algorithm: dreamer
   - override /environment: atari100k
+  - override /evaluation: none
   - override /trainer: gpu
   - override /logger: wandb
   - _self_
@@ -48,12 +49,21 @@ environment:
 
 algorithm:
   action_repeat: 4        # AtariPreprocessing(frame_skip=4) above
-  benchmark_frames: 400_000  # Atari-100k: 100k agent steps x action_repeat
+
+# DreamerV3 reports training-stream episode returns, and this stack sets
+# `terminal_on_life_loss: false` with no reward clipping, so those returns are
+# true game scores — separate eval rollouts would add nothing.
+# `summary_max_step` reproduces upstream's reporting rule: training runs 10%
+# past the Atari-100k budget, but the headline number is cut off at 100k agent
+# steps (= 400k game frames).
+evaluation:
+  summary_max_step: 100_000
 
 run_name: dreamer_${environment.task}_atari100k_${model_size}_${now:%Y-%m-%d_%H-%M-%S}
 
 trainer:
   # 110k agent steps = 440k game frames; official DreamerV3 trains 10% past the
-  # 100k budget (eval/score_* still cuts off at 400k frames).
+  # 100k budget. `evaluation.summary_max_step` above keeps the headline number
+  # cut off at 100k agent steps.
   total_frames: 110_000
   log_every_n_steps: 1_000

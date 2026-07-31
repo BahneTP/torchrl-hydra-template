@@ -18,7 +18,8 @@ The template enforces a hard split between three components:
 |-----------------|-------------------------------------------------------------------------|
 | **Algorithm**   | Everything that affects learning: network, replay buffer, loss, optimiser, exploration, target-net schedule, collector config (`frames_per_batch`, `init_random_frames`, ...). Hyperparameters live as keyword arguments on `__init__`. |
 | **Trainer**     | The loop. Device placement, data collection (creates `Collector` from algorithm config), logging, callbacks, checkpointing. **No knobs that affect learning live here.** |
-| **Environment** | One *benchmark*: backend, preprocessing stack, and a `task` key naming the task within it. Independent of algorithm. |
+| **Environment** | One *benchmark*: backend, preprocessing stack, a `task` key naming the task within it, plus reporting metadata (`env_id`, `action_repeat`). Independent of algorithm. |
+| **Evaluation**  | The *measurement* protocol: eval env stack, cadence, episode count, policy mode, and which stream is canonical. **No knobs that affect learning live here either.** |
 | **Experiment**  | One algorithm × one benchmark. Owns everything that depends on the *task*: pixel-vs-state network choice, budgets, exploration schedules, replay capacity, episode length. |
 
 Derived rules:
@@ -42,6 +43,21 @@ Derived rules:
 6. **Environments are named per benchmark, tasks are overrides.** `gym`, `dmc`,
    `ale`, `atari100k` — each exposing `task`. Eval configs interpolate
    `${environment.task}` absolutely so one override moves both envs.
+7. **Evaluation is its own config group.** `configs/evaluation/<benchmark>.yaml`
+   selects the eval env stack *and* the protocol, so one override moves both:
+   `- override /evaluation: atari100k`. All files inherit from
+   `evaluation/none.yaml`, which is the schema of record — add new keys there
+   first. Experiments never set `environment@eval_environment` directly.
+8. **One x-axis for everything.** Metrics are logged against `global_step` in
+   **agent steps** (what `batch.numel()` already counts), with
+   `frames = global_step * environment.action_repeat` alongside. An algorithm
+   must never define its own `log_step`.
+9. **openrlbenchmark compatibility is a hard contract**, enforced by
+   `tests/test_evaluation_contract.py`. `env_id` / `exp_name` / `seed` stay
+   top-level in `configs/train.yaml`; `env_id` carries **no `ALE/` prefix** (the
+   human-normalised-score table is keyed `Pong-v5`); episodes are logged one row
+   each, never pre-aggregated; `wandb.log` is called **without** `step=` so
+   `global_step` is a real data column.
 
 Currently DQN (gym, ALE), DDPG (gym), A2C (gym), PPO (DMC, ALE),
 TD-MPC2 (DMC), Rainbow/DER (Atari-100k), BBF (Atari-100k) and DreamerV3 +
@@ -196,3 +212,13 @@ algorithm:
   Add the *benchmark* once and select the task with `environment.task=`.
 - Do **not** patch a network factory's `_target_` from an experiment body; override
   the config group instead (`override /algorithm/network: ...`).
+- Do **not** put evaluation cadence or episode counts on `trainer:` — they
+  belong in `configs/evaluation/`. Experiments select the group
+  (`override /evaluation: atari100k`), never `environment@eval_environment`.
+- Do **not** call `wandb.log(..., step=...)`, and do not log metrics from inside
+  an algorithm. Route everything through `BaseTrainer.log_metrics` /
+  `log_episodes`, which inject `global_step` and `frames`. The one accepted
+  exception is Dreamer's `video/*`, which keeps its own `video/frame` axis.
+- Do **not** pre-aggregate episode returns into one point per log boundary.
+  openrlbenchmark averages the last 100 *logged points*, so a windowed mean
+  silently changes what that window measures.

@@ -142,7 +142,7 @@ curl -sL -o checkpoints/cheetah-run-1.pt \
   "https://huggingface.co/nicklashansen/tdmpc2/resolve/main/dmcontrol/cheetah-run-1.pt"
 python src/eval.py algorithm=tdmpc2 environment=dmc \
   checkpoint.resume_from=$PWD/checkpoints/cheetah-run-1.pt \
-  trainer.accelerator=gpu trainer.num_eval_episodes=10
+  trainer.accelerator=gpu evaluation.final_num_episodes=10
 ```
 
 Verified result with the official `cheetah-run-1.pt` (2023-06-03) through this port:

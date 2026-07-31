@@ -157,14 +157,23 @@ Three design decisions required custom adaptation due to TorchRL conventions:
 
 ## Experimental results
 
-**Evaluation protocol.** Following the official DreamerV3 code (`run.steps: 1.1e5`),
-the Atari100k experiment configs train for 110k agent steps — 10 % past the
-benchmark budget of 100k steps (400k game frames) stated in the paper. The
-end-of-run summary metrics stay paper-comparable: `eval/score_last` and
-`eval/score_mean_last10pct` are cut off at `algorithm.benchmark_frames`
-(default 400k game frames), i.e. the last episode within the budget and the mean
-over episodes in its final 10 % (360k–400k frames). Episodes past the budget
-appear only on the `episode/score` curve, for debugging and run-to-run comparison. Some runs below don"t have any eval metrics yet so they are not listed, replace them with new ones in the future.
+**Evaluation protocol.** DreamerV3 reports training-stream episode returns, and
+this stack sets `terminal_on_life_loss: false` with no reward clipping, so those
+returns are true game scores — the experiment uses `evaluation: none` (no eval
+rollouts) with `canonical_source: train`, and `charts/episodic_return` carries
+one row per completed training episode.
+
+Following the official DreamerV3 code (`run.steps: 1.1e5`), the Atari100k
+experiment trains for 110k agent steps — 10 % past the benchmark budget of 100k
+steps (400k game frames) stated in the paper. The headline number stays
+paper-comparable via `evaluation.summary_max_step: 100_000`, which drops
+episodes completed past the budget before averaging the last
+`evaluation.summary_window` (100) episodes into `eval/final_return_mean`.
+Episodes past the budget still appear on the `charts/episodic_return` curve.
+
+Older runs in the table below predate this protocol and were scored from
+`eval/score_mean_last10pct`; `scripts/update_algo_results.py` still reads that
+key but labels it `legacy` in the Notes column. Replace them with new runs.
 
 **Live W&B table (canonical):** [LatentLab/torchrl-hydra-template — Table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)
 

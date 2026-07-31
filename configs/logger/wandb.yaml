@@ -7,3 +7,10 @@ logger:
     tags: []
     mode: online                # "online" | "offline" | "disabled"
     save_dir: ${paths.log_dir}/wandb/
+    job_type: train
+    # Sidecar recording this run's W&B id next to the checkpoints, so
+    # `src/eval.py ... logger.0.resume=must` can append evaluation results to
+    # this run rather than creating a second one.
+    run_id_file: ${oc.select:checkpoint.save_dir,null}/wandb_run.json
+    run_id: null
+    resume: null

@@ -5,11 +5,22 @@
 defaults:
   - override /algorithm: ppo
   - override /environment: dmc
+  - override /evaluation: none
   - override /logger: wandb
   - _self_
 
+# `evaluation: none` (training stream only): the DMC stack has no reward
+# clipping and no life-loss truncation, so a completed training episode already
+# is the true score. The TD-MPC2-style periodic protocol (evaluation=dmc) would
+# add ~1M env steps to this 1M-frame run for no extra information.
+evaluation:
+  summary_window: 100
+
 environment:
   task: cheetah-run
+  # No FrameSkipTransform below, so one agent step is one sim step. This must
+  # stay in sync with the transform list or `frames` is wrong.
+  action_repeat: 1
   # PPO-specific observation handling, so it lives here rather than in the
   # shared dmc.yaml stack. VecNorm + ClipTransform implement the cleanRL /
   # "37 details" observation normalization + clipping tricks (values match the

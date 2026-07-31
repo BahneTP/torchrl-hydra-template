@@ -354,9 +354,9 @@ class RainbowAlgorithm(DQNAlgorithm):
             # Fortunato et al. (2018): official Rainbow evaluates with noise
             # still sampled by default (`eval_noise=True`); NoisyLinear reads
             # `nn.Module.training` to decide whether to sample or use the
-            # mean weights. `evaluate()` only runs from the standalone
-            # `src/eval.py` process (never interleaved with `src/train.py`'s
-            # active training loop), so toggling the shared actor's mode here
-            # is safe.
+            # mean weights. This mutates shared state, which periodic
+            # evaluation would otherwise leak into training —
+            # `BaseTrainer.evaluate()` snapshots and restores every algorithm
+            # module's `.training` flag around the rollout.
             self.q_actor.train(mode=self.eval_noise)
         return self.q_actor

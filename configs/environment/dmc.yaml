@@ -6,6 +6,11 @@
 #   python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
 backend: dm_control
 task: cheetah-run
+# Benchmark id logged to W&B (openrlbenchmark matches config.env_id exactly).
+env_id: ${environment.task}
+# Sim steps per agent step; must match FrameSkipTransform below. Experiments
+# that drop the frame skip must set action_repeat: 1 (see experiment/ppo/dmc).
+action_repeat: 2
 
 transforms:
   # Action repeat 2 (rewards summed) -> 500 decision steps per 1000-sim-step

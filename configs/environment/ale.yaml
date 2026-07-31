@@ -9,6 +9,13 @@
 # use environment=atari100k instead.
 task: Pong
 name: ALE/${environment.task}-v5
+# Benchmark id logged to W&B. Deliberately *without* the "ALE/" namespace:
+# openrlbenchmark's human-normalised-score table is keyed "Pong-v5", and
+# "ALE/Pong-v5" raises KeyError there.
+env_id: ${environment.task}-v5
+# Raw ALE frames per agent step. `global_step` counts agent steps; `frames`
+# is logged as global_step * action_repeat.
+action_repeat: 4
 gym_backend: gymnasium
 gym_kwargs:
   frame_skip: 4
@@ -25,8 +32,6 @@ transforms:
     noops: 30
     random: true
   - _target_: torchrl.envs.EndOfLifeTransform
-  - _target_: torchrl.envs.SignTransform
-    in_keys: [reward]
   - _target_: torchrl.envs.ToTensorImage
   - _target_: torchrl.envs.GrayScale
   - _target_: torchrl.envs.Resize
@@ -36,6 +41,13 @@ transforms:
     N: 4
     dim: -3
   - _target_: torchrl.envs.RewardSum
+  # After RewardSum on purpose: RewardSum writes `episode_reward` and passes
+  # `reward` through untouched, so the loss still sees clipped rewards while the
+  # logged episode return stays the true game score. EndOfLifeTransform does not
+  # set `done`, so those episodes also run to real game over — together that
+  # makes `charts/episodic_return` comparable to published Atari curves.
+  - _target_: torchrl.envs.SignTransform
+    in_keys: [reward]
   - _target_: torchrl.envs.StepCounter
     max_steps: 4500
   - _target_: torchrl.envs.DoubleToFloat

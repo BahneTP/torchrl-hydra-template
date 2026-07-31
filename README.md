@@ -13,7 +13,7 @@ _Suggestions are always welcome!_
 
 Reinforcement learning code tends to become monolithic — training loop, environment
 setup, network construction, replay buffer, and update rule all tangled together.
-This template enforces a hard split into four components, inspired by how
+This template enforces a hard split into five components, inspired by how
 [PyTorch Lightning](https://github.com/Lightning-AI/pytorch-lightning) structures
 deep learning code:
 
@@ -22,9 +22,10 @@ deep learning code:
 | **Algorithm**   | Everything that affects learning: network, replay buffer, loss, optimiser, exploration, target-net schedule, collector config. **All hyperparameters live here.** | `LightningModule`        |
 | **Trainer**     | The loop. Device placement, data collection, logging, callbacks, checkpointing. **No knobs that affect reward.** | `Trainer`                |
 | **Environment** | One benchmark: backend, preprocessing stack, and a `task` key naming the task within it. Independent of algorithm. | `LightningDataModule`    |
+| **Evaluation**  | The measurement protocol: eval env stack, cadence, episode count, policy mode, and which stream is canonical. **Also no knobs that affect reward.** | —                        |
 | **Experiment**  | One algorithm × one benchmark, plus everything that depends on the *task*: which network, what budget, which schedules. | —                        |
 
-Three derived rules:
+Four derived rules:
 
 1. **RL algorithm code reads like the paper.** `step()` is short and corresponds to
    the update equations. The DQN file looks like Mnih et al. (2015)'s pseudocode,
@@ -36,6 +37,11 @@ Three derived rules:
    budgets and exploration schedules are properties of a benchmark, not of DQN, so
    they live in the experiment. That is what keeps one `configs/algorithm/dqn.yaml`
    serving both CartPole and Atari.
+4. **How you measure is separate from what you train.** Evaluation cadence, episode
+   counts and the eval env stack are one override (`evaluation=atari100k`), and
+   every run logs the same metric names on the same axis — so results are
+   comparable across algorithms, and directly consumable by
+   [openrlbenchmark](https://github.com/openrlbenchmark/openrlbenchmark).
 
 **Implemented experiments:**
 
@@ -128,8 +134,16 @@ python src/train.py experiment=dqn/ale
 train.py  ->  Trainer(algorithm, environment)
                 ├── owns: device, env lifecycle, Collector, eval, callbacks, checkpoints
                 │         (defaults: checkpoints/last.pt at train end, then a final
-                │          eval of trainer.final_eval_episodes episodes, logged as eval/*)
+                │          eval of evaluation.final_num_episodes episodes)
+                ├── logs: every metric row against global_step (agent steps)
                 └── calls: algorithm.step(batch) -> metrics
+
+Evaluation   ->  the measurement protocol (configs/evaluation/<benchmark>.yaml)
+               ├── eval_environment    — env stack to measure on (null = reuse train)
+               ├── every_n_steps       — periodic eval cadence (0 = final only)
+               ├── num_episodes / final_num_episodes
+               ├── policy              — eval | explore
+               └── canonical_source    — train | eval, feeds charts/episodic_return
 
 Algorithm    ->  owns: network, replay buffer, loss, optimiser, exploration,
                        collector config (frames_per_batch, init_random_frames, ...)
@@ -274,26 +288,95 @@ transforms:
   # ...
 ```
 
-#### Separate evaluation environment
+#### Evaluation protocol
 
-For tasks where training-time observations differ from what evaluation should
-see (e.g. Atari, where the SOTA reference clips rewards and ends episodes on
-life loss during training but not during eval), declare a second env via the
-Hydra package override:
+Evaluation is its own config group. One override selects both the eval env
+stack and the protocol:
 
 ```yaml
 # configs/experiment/dqn/ale.yaml
 defaults:
   - override /environment: ale
-  - override /environment@eval_environment: ale_eval
+  - override /evaluation: ale       # pulls in ale_eval + cadence + episode count
 ```
 
-When `eval_environment` is set, `BaseTrainer.evaluate()` uses it; otherwise it
-falls back to `environment`.
+```yaml
+# configs/evaluation/atari100k.yaml
+defaults:
+  - none                                              # the base schema
+  - override /environment@eval_environment: atari100k_eval
+  - _self_
 
-The `_eval` config interpolates `name: ALE/${environment.task}-v5` — an
-*absolute* reference, so composed under the `eval_environment` package it reads
+every_n_steps: 0         # periodic eval cadence in agent steps; 0 = final only
+num_episodes: 10         # episodes per periodic eval point
+final_num_episodes: 100  # official Atari-100k protocol
+policy: eval             # eval | explore
+canonical_source: eval   # which stream feeds charts/episodic_return
+```
+
+Shipped protocols: `none` (training stream only), `gym`, `ale`, `atari100k`,
+`dmc`. Any scalar is overridable — turn a final-only protocol into a learning
+curve with `evaluation.every_n_steps=10_000`.
+
+The `_eval` env configs interpolate `name: ALE/${environment.task}-v5` — an
+*absolute* reference, so composed under the `eval_environment` package they read
 the train env's task. One `environment.task=Breakout` moves both envs.
+
+`canonical_source` exists because the training stream is not always a true
+score. On `atari100k`, `EpisodicLifeEnv` sets `terminated=True` at life loss, so
+`RewardSum` resets there and a "training episode" is a life-long fragment —
+those benchmarks measure from eval rollouts instead. On `ale`, torchrl's
+`EndOfLifeTransform` deliberately does *not* set `done`, and `SignTransform`
+sits after `RewardSum`, so training episodes already are unclipped game scores.
+
+#### Stages
+
+`train:` and `eval:` are top-level flags:
+
+```shell
+python src/train.py experiment=dqn/gym eval=false     # skip the final evaluation
+python src/eval.py  experiment=dqn/gym checkpoint.resume_from=logs/.../last.pt
+```
+
+`src/eval.py` logs to W&B like training does. By default it creates a separate
+run tagged `eval`; add `logger.0.resume=must` to append the results to the
+training run that produced the checkpoint (it reads the run id from the
+`wandb_run.json` sidecar written next to the checkpoint).
+
+### Benchmarking with openrlbenchmark
+
+Runs are logged in a layout [openrlbenchmark](https://github.com/openrlbenchmark/openrlbenchmark)
+can consume directly, so results can be compared against CleanRL, baselines,
+Tianshou and friends without post-processing.
+
+| W&B key | Meaning |
+|---|---|
+| `charts/episodic_return` / `_length` | canonical return, one row per episode (source per `canonical_source`) |
+| `charts/train_episodic_return` / `_length` | always the training stream |
+| `charts/eval_episodic_return` / `_length` | always eval rollouts |
+| `eval/return_mean`, `_std`, `_min`, `_max`, `eval/episodes` | one row per eval point |
+| `eval/final_return_mean` / `_std` | run summary: last `summary_window` canonical episodes |
+| `global_step` | **agent steps** (post frame-skip); on every row |
+| `frames` | `global_step * environment.action_repeat`; on every row |
+
+Run config carries top-level `env_id`, `exp_name` and `seed`. `env_id` omits the
+`ALE/` prefix (`Pong-v5`), because openrlbenchmark's human-normalised-score
+table is keyed that way and `ALE/Pong-v5` raises `KeyError`.
+
+Three seeds, then compare:
+
+```shell
+python src/train.py -m experiment=dqn/ale trainer.seed=1,2,3
+
+python -m openrlbenchmark.rlops --scan-history \
+  --filters '?we=<entity>&wpn=torchrl-hydra-template&ceik=env_id&cen=exp_name&metric=charts/episodic_return' \
+    'dqn?seed=1&seed=2&seed=3&cl=DQN (template)' \
+  --env-ids Pong-v5 --output-filename compare
+```
+
+Two caveats worth knowing: openrlbenchmark skips runs that are not `finished`,
+and `--rliable` truncates every cell to the smallest seed count in the
+comparison — keep seed counts uniform across games.
 
 ### Trainer
 
@@ -304,15 +387,24 @@ collector config and the trainer-level `total_frames`, then iterates:
 for batch in self.collector:
     self._step += batch.numel()
     metrics = self.algorithm.step(batch)
+    ep_rewards, ep_lengths, _ = _batch_metrics(batch)
+    self.log_episodes(ep_rewards, ep_lengths, self._step, source="train")
     if self._should_log(...):
-        fire_callbacks(ON_STEP_END, self.callbacks, metrics=metrics, step=self._step)
+        self.log_metrics(row, self._step)
+        fire_callbacks(ON_STEP_END, self.callbacks, metrics=row, step=self._step)
+    if self._should_eval(...):
+        self.run_evaluation(evaluation.num_episodes, step=self._step)
 ```
 
 `BaseTrainer` owns:
 - **Device** — resolves `accelerator` + `devices` to `torch.device`.
 - **Env lifecycle** — creates train/eval envs via `Environment.make_env()`.
-- **Eval** — `evaluate(num_episodes)` runs the greedy policy.
-- **Callbacks** — fires `ON_TRAIN_START`, `ON_STEP_END`, `ON_TRAIN_END` events.
+- **Eval** — `run_evaluation()` / `run_final_evaluation()` follow the
+  `configs/evaluation/` protocol; the eval env is built once and reused, and
+  module `.training` flags are restored around every rollout.
+- **Metrics** — `log_metrics()` / `log_episodes()` inject `global_step` and
+  `frames` into every row.
+- **Callbacks** — fires `ON_TRAIN_START`, `ON_METRICS`, `ON_STEP_END`, `ON_TRAIN_END`.
 - **Checkpoints** — orchestrates save/load of algorithm state.
 
 Trainer config knobs (`total_frames`, `seed`, `accelerator`, `devices`,
@@ -323,8 +415,9 @@ learned.
 
 ```
 configs/
-├── train.yaml              <- top-level defaults (run_name, checkpoint)
-├── eval.yaml               <- evaluation defaults
+├── train.yaml              <- top-level defaults (train/eval flags, env_id,
+│                              exp_name, seed, run_name, checkpoint)
+├── eval.yaml               <- evaluation entry point defaults
 ├── trainer/
 │   ├── default.yaml        <- the loop: seed, total_frames, num_envs, logging
 │   ├── cpu.yaml
@@ -352,6 +445,12 @@ configs/
 │   ├── ale_eval.yaml       <- same without EndOfLife / Sign / VecNorm
 │   ├── atari100k.yaml      <- Atari-100k protocol (train)
 │   └── atari100k_eval.yaml <- same without EpisodicLife / Sign
+├── evaluation/             <- measurement protocol; also selects the eval env
+│   ├── none.yaml           <- base schema; training stream only, no rollouts
+│   ├── gym.yaml            <- final eval only, canonical_source: train
+│   ├── ale.yaml            <- ale_eval stack, canonical_source: train
+│   ├── atari100k.yaml      <- 100 final episodes, canonical_source: eval
+│   └── dmc.yaml            <- periodic every 10k (TD-MPC2 upstream cadence)
 ├── logger/
 │   ├── wandb.yaml
 │   └── tensorboard.yaml
@@ -363,7 +462,8 @@ configs/
     ├── ppo/{dmc,ale}.yaml
     ├── rainbow/atari100k.yaml   <- the Data-Efficient Rainbow preset
     ├── tdmpc2/dmc.yaml
-    └── dreamer/atari100k.yaml
+    ├── dreamer/atari100k.yaml
+    └── bbf/{atari100k,atari100k_rr8}.yaml
 ```
 
 Anything that depends on the *task* — pixel networks, replay capacity,
@@ -396,11 +496,18 @@ python src/train.py experiment=dqn/gym logger=[]
 
 The trainer fires events at key points:
 
-| Event             | When                  | Receives                            |
-|-------------------|-----------------------|-------------------------------------|
-| `ON_TRAIN_START`  | Before the loop       | `state: {"cfg": cfg}`               |
-| `ON_STEP_END`     | After each logged step| `metrics: dict, step: int`          |
-| `ON_TRAIN_END`    | After the loop        | `state: {"cfg": cfg}`               |
+| Event             | When                              | Receives                                  |
+|-------------------|-----------------------------------|-------------------------------------------|
+| `ON_TRAIN_START`  | Before the loop                   | `state: {"cfg": cfg}`                     |
+| `ON_METRICS`      | Per metric row (incl. per episode)| `metrics: dict, step: int`                |
+| `ON_STEP_END`     | After each logged step            | `metrics: dict, step: int`                |
+| `ON_TRAIN_END`    | After the loop                    | `state: {"cfg": cfg, "summary": dict}`    |
+
+`ON_METRICS` and `ON_STEP_END` are separate on purpose. `ON_METRICS` means "one
+row of metrics at this x position" and fires once per completed episode —
+loggers implement it. `ON_STEP_END` means "the loop crossed a log boundary" and
+fires only there — the progress bar and checkpointer implement it, and would
+misbehave if driven per episode.
 
 Built-in callbacks: `ProgressCallback` (tqdm bar), `CheckpointCallback`,
 `WandBLogger`, `TensorBoardLogger`.

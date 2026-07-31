@@ -18,7 +18,7 @@ BASE_OVERRIDES = [
     "logger=[]",
     "trainer.accelerator=cpu",
     "trainer.devices=[0]",
-    "trainer.final_eval_episodes=0",  # keep smoke runs to seconds
+    "eval=false",  # skip the post-training evaluation stage; keeps runs to seconds
     # The compose API can't resolve ${hydra:runtime.output_dir}; checkpointing
     # is on by default (save_last), so point it at a literal path to keep the
     # default checkpoint path exercised.

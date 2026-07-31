@@ -10,6 +10,7 @@ from scripts.update_algo_results import (
     ResultRow,
     build_table,
     format_project_not_found_error,
+    get_eval_return,
     infer_experiment_config,
     load_experiment_registry,
     replace_results_table,
@@ -190,6 +191,60 @@ def test_replace_results_table():
     assert updated != readme
     assert "No finished runs tagged ``template`` yet" in updated
     assert "## Experimental results" in updated
+
+
+class _FakeRun:
+    """Minimal stand-in for a wandb Run (no network)."""
+
+    def __init__(self, summary: dict, history: dict[str, list] | None = None) -> None:
+        self.summary = summary
+        self._history = history or {}
+
+    def history(self, keys, pandas=False):
+        key = keys[0]
+        if key not in self._history:
+            raise ValueError(f"no such key: {key}")
+        return [{key: v} for v in self._history[key]]
+
+
+def test_eval_return_prefers_trainer_summary():
+    run = _FakeRun(
+        {"eval/final_return_mean": 1125.0, "eval/return_mean": 999.0},
+        {"charts/episodic_return": [1.0, 2.0]},
+    )
+    assert get_eval_return(run) == (1125.0, "")
+
+
+def test_eval_return_averages_last_100_canonical_points():
+    """openrlbenchmark's own rule, so the README column matches its tables."""
+    run = _FakeRun({}, {"charts/episodic_return": [0.0] * 500 + [10.0] * 100})
+    value, note = get_eval_return(run)
+    assert value == pytest.approx(10.0)
+    assert note == ""
+
+
+def test_eval_return_ignores_nan_summary():
+    run = _FakeRun(
+        {"eval/final_return_mean": float("nan")},
+        {"charts/episodic_return": [5.0, 7.0]},
+    )
+    assert get_eval_return(run) == (pytest.approx(6.0), "")
+
+
+def test_eval_return_falls_back_to_legacy_keys_with_a_note():
+    """Runs predating the unified protocol still populate the table, labelled."""
+    run = _FakeRun({"eval/score_mean_last10pct": 42.0})
+    assert get_eval_return(run) == (42.0, "legacy eval/score_mean_last10pct")
+
+    run = _FakeRun({"eval/return_mean": 7.0})
+    assert get_eval_return(run) == (7.0, "legacy eval/return_mean")
+
+    run = _FakeRun({}, {"train/episode_reward": [1.0, 9.0, 3.0]})
+    assert get_eval_return(run) == (9.0, "legacy best train/episode_reward")
+
+
+def test_eval_return_missing_everywhere():
+    assert get_eval_return(_FakeRun({})) == (None, "")
 
 
 def test_resolve_entity_prefers_explicit():

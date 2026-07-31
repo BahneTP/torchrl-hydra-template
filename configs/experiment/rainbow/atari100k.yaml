@@ -8,10 +8,14 @@
 defaults:
   - override /algorithm: rainbow
   - override /environment: atari100k
-  - override /environment@eval_environment: atari100k_eval
+  - override /evaluation: atari100k
   - override /trainer: gpu
   - override /logger: wandb
   - _self_
+
+# The data-efficient preset is what the literature calls DER, and it must not
+# collide with a full Rainbow run on the same game.
+exp_name: der
 
 environment:
   task: Jamesbond
