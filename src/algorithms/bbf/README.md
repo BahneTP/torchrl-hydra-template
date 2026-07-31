@@ -123,6 +123,14 @@ annealed horizon (design choice 4) implementable. `replay_capacity ≥ total env
 head. **Priority semantics:** torchrl reduces a slice's sampling priority over
 the window (`reduction='max'`); we key each window's priority on its *start*
 transition (priority $=$ C51 loss, sampled $\propto \text{loss}^\alpha$).
+- **Our PER is more "real" than the official run's.** In the official release,
+`set_priority` receives the *batch-mean* DQN loss (`aux_losses["DQNLoss"]` is
+a scalar per batch) and `zip`s it against the full index array, so only the
+first `batches_to_group` (= 2) of 64 sampled indices are ever updated; every
+other transition keeps the max-priority it got on insertion. The official
+runs therefore sampled *near-uniformly* despite `replay_scheme='prioritized'`.
+This template implements textbook per-sample PER instead; to reproduce the
+official effective behaviour, run with `algorithm.prioritized=false`.
 - **Life-loss handling.** This template's `EpisodicLifeEnv` flags life loss as
 `terminated` at the gym level, so `cut = terminated | done`; there is no
 separate `end-of-life` key.
@@ -151,6 +159,14 @@ python src/eval.py experiment=bbf/jamesbond \
     checkpoint.resume_from=logs/train/runs/<run>/checkpoints/last.pt \
     trainer.num_eval_episodes=100
 ```
+
+**Comparing against the paper:** the official protocol is a 100-episode eval
+at the *end* of training on full (game-over) episodes — the `src/eval.py`
+command above. `train/episode_reward` in W&B is a per-*life* return (the train
+env uses `EpisodicLifeEnv`), so it reads several times lower than eval scores.
+Official per-seed Jamesbond results from the repo's `scores/RR2_BBF.csv`
+(14 seeds): mean ≈ 1125, median 1118, min 573, max 1490 — seed variance is
+large even upstream.
 
 Ablation switches (each is one design choice from the table):
 
