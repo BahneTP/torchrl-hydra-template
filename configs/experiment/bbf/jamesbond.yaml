@@ -24,3 +24,4 @@ trainer:
   devices: [0]
   num_envs: 1              # BBF requires a single contiguous stream
   log_every_n_steps: 1_000
+  final_eval_episodes: 100 # official protocol: 100 game-over episodes at end

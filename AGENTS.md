@@ -359,10 +359,14 @@ Use this when training-time and evaluation-time observations should differ
 - delegates device resolution to `src/utils/device.py`.
 
 `BaseTrainer` owns env lifecycle, `evaluate(num_episodes)` (greedy rollout), and
-checkpoint orchestration. Checkpointing is **off by default** (`checkpoint.enabled:
-false` in `configs/train.yaml`); enable it with
-`checkpoint.enabled=true` (and optionally tune `save_every_n_steps` /
-`save_last`). `checkpoint.resume_from` still works when checkpointing is disabled.
+checkpoint orchestration. By default (`configs/train.yaml`) a final
+`checkpoints/last.pt` is written at train end (`checkpoint.enabled: true`,
+`save_last: true`); periodic saves are off (`save_every_n_steps: 0`) — set a
+positive value to enable them. After training, `fit()` runs one evaluation of
+`trainer.final_eval_episodes` episodes (default 10; `0` disables) on the eval
+environment and logs the `eval/*` metrics at the final step; the BBF
+experiments set it to `100` to match the official Atari-100k protocol.
+`checkpoint.resume_from` works regardless of `checkpoint.enabled`.
 
 ## File map
 

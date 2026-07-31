@@ -118,6 +118,8 @@ python src/train.py experiment=dqn/pong
 ```
 train.py  ->  Trainer(algorithm, environment)
                 ├── owns: device, env lifecycle, Collector, eval, callbacks, checkpoints
+                │         (defaults: checkpoints/last.pt at train end, then a final
+                │          eval of trainer.final_eval_episodes episodes, logged as eval/*)
                 └── calls: algorithm.step(batch) -> metrics
 
 Algorithm    ->  owns: network, replay buffer, loss, optimiser, exploration,

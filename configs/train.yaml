@@ -17,12 +17,13 @@ trainer:
   total_frames: 1_000_000
   num_envs: 1             # number of parallel environments
   log_every_n_steps: 1_000
+  final_eval_episodes: 10 # episodes evaluated once after training (0 disables)
 
 checkpoint:
-  enabled: false
+  enabled: true
   save_dir: ${paths.output_dir}/checkpoints
-  save_every_n_steps: 50_000
-  save_last: false
+  save_every_n_steps: 0   # periodic saves every N env steps (0 disables)
+  save_last: true         # always write checkpoints/last.pt at train end
   resume_from: null       # path to .pt file to resume from
 
 hydra:

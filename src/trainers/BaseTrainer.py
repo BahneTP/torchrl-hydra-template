@@ -96,10 +96,16 @@ class BaseTrainer(ABC):
         self.algorithm.setup(make_env)
 
     def fit(self) -> dict[str, float]:
-        """Run the full training loop.
+        """Run the full training loop, then an optional final evaluation.
+
+        ``trainer.final_eval_episodes`` (> 0) runs ``evaluate()`` once after
+        training and logs the ``eval/*`` metrics at the final step; its
+        results are merged into the returned dict. ``ON_TRAIN_END`` fires in
+        a ``finally`` block so checkpoint saving and logger teardown still
+        happen if the final evaluation raises.
 
         Returns:
-            dict of final training metrics
+            dict of final training metrics (plus ``eval/*`` if enabled)
         """
         fire_callbacks(
             TrainerEvent.ON_TRAIN_START,
@@ -109,11 +115,29 @@ class BaseTrainer(ABC):
 
         metrics = self._training_loop()
 
-        fire_callbacks(
-            TrainerEvent.ON_TRAIN_END,
-            self.callbacks,
-            state={"cfg": self.cfg},
-        )
+        try:
+            final_eval_episodes = int(
+                self.trainer_cfg.get("final_eval_episodes", 0) or 0
+            )
+            if final_eval_episodes > 0:
+                eval_metrics = self.evaluate(num_episodes=final_eval_episodes)
+                metrics = {**metrics, **eval_metrics}
+                print(
+                    f"Final evaluation ({final_eval_episodes} episodes): "
+                    + ", ".join(f"{k}={v:.2f}" for k, v in eval_metrics.items())
+                )
+                fire_callbacks(
+                    TrainerEvent.ON_STEP_END,
+                    self.callbacks,
+                    metrics=eval_metrics,
+                    step=self._step,
+                )
+        finally:
+            fire_callbacks(
+                TrainerEvent.ON_TRAIN_END,
+                self.callbacks,
+                state={"cfg": self.cfg},
+            )
         return metrics
 
     @abstractmethod

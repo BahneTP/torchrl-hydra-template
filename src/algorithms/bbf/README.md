@@ -154,15 +154,18 @@ python src/train.py experiment=bbf/jamesbond
 # Paper flagship: replay ratio 8 (A100-class GPU recommended)
 python src/train.py experiment=bbf/jamesbond_rr8
 
-# Evaluate a checkpoint on the true-score eval env (game over = episode end)
+# Re-evaluate a saved checkpoint on the true-score eval env (game over = episode end)
 python src/eval.py experiment=bbf/jamesbond \
     checkpoint.resume_from=logs/train/runs/<run>/checkpoints/last.pt \
     trainer.num_eval_episodes=100
 ```
 
 **Comparing against the paper:** the official protocol is a 100-episode eval
-at the *end* of training on full (game-over) episodes — the `src/eval.py`
-command above. `train/episode_reward` in W&B is a per-*life* return (the train
+at the *end* of training on full (game-over) episodes. Training runs this
+automatically (the experiments set `trainer.final_eval_episodes: 100`), logs
+it as `eval/return_mean` etc. at the final step, and saves
+`checkpoints/last.pt`; `src/eval.py` re-evaluates a checkpoint later.
+`train/episode_reward` in W&B is a per-*life* return (the train
 env uses `EpisodicLifeEnv`), so it reads several times lower than eval scores.
 Official per-seed Jamesbond results from the repo's `scores/RR2_BBF.csv`
 (14 seeds): mean ≈ 1125, median 1118, min 573, max 1490 — seed variance is
