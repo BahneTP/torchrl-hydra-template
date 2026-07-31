@@ -105,29 +105,46 @@ def _to_dict(node) -> dict:
     return OmegaConf.to_container(node, resolve=True)
 
 
+def _class_identity(target: str | None) -> tuple | None:
+    """``(package, ClassName)`` — stable when a module path is refactored.
+
+    Historical runs logged e.g. ``src.algorithms.dreamer.dreamer.DreamerAlgorithm``
+    before the package re-export shortened it; both must resolve to the same
+    algorithm.
+    """
+    if not target:
+        return None
+    return (algo_package_from_target(target), target.rsplit(".", 1)[-1])
+
+
 def algo_identity(algo_cfg: dict) -> tuple:
     """Identity of an algorithm setup, shared by specs and W&B run configs.
 
     ``obs_key`` separates the pixel and state variants of one algorithm class,
     ``encoder_type`` separates Rainbow from its data-efficient preset, and the
-    world-model target separates DreamerV3 / R2Dreamer / DreamerPro.
+    world-model class separates DreamerV3 / R2Dreamer / DreamerPro.
     """
     return (
-        algo_cfg.get("_target_"),
+        _class_identity(algo_cfg.get("_target_")),
         algo_cfg.get("obs_key") or "observation",
         algo_cfg.get("encoder_type"),
-        (algo_cfg.get("dreamer_config") or {}).get("_target_"),
+        _class_identity((algo_cfg.get("dreamer_config") or {}).get("_target_")),
     )
 
 
 def env_family(env_cfg: dict) -> str:
-    """Coarse benchmark identity — stable across a change of task."""
+    """Coarse benchmark identity — stable across a change of task.
+
+    Deliberately coarse for Atari: the preprocessing stack has changed shape
+    over time (max-and-skip moved into ``gymnasium_wrappers``), and pinning the
+    family to it would orphan older runs of an experiment that still exists.
+    Which ALE protocol a run used is already carried by the algorithm identity
+    (``obs_key``, ``encoder_type``).
+    """
     if env_cfg.get("backend") == "dm_control":
         return "dm_control"
     if str(env_cfg.get("name") or "").startswith("ALE/"):
-        # Atari-100k preprocessing runs through gymnasium wrappers; the
-        # standard ALE stack is transforms-only.
-        return "ale_wrapped" if env_cfg.get("gymnasium_wrappers") else "ale_plain"
+        return "ale"
     return "gym"
 
 

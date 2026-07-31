@@ -103,6 +103,19 @@ def test_infer_experiment_config_matches_legacy_dmc_shape(registry):
     assert infer_experiment_config(config, registry) == "experiment=tdmpc2/dmc"
 
 
+def test_infer_experiment_config_matches_legacy_algorithm_target(registry):
+    """Runs logged before the dreamer package re-export shortened `_target_`."""
+    config = {
+        "algorithm": {
+            "_target_": "src.algorithms.dreamer.dreamer.DreamerAlgorithm",  # old path
+            "dreamer_config": {"_target_": "src.algorithms.dreamer.model.DreamerV3"},
+        },
+        "environment": {"name": "ALE/Hero-v5"},
+        "trainer": {"seed": 42, "total_frames": 110_000},
+    }
+    assert infer_experiment_config(config, registry) == "experiment=dreamer/atari100k"
+
+
 def test_infer_experiment_config_dreamer_variant(registry):
     """R2Dreamer runs resolve to the dreamer experiment plus an algorithm override."""
     config = {
