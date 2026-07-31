@@ -348,9 +348,15 @@ class BBFAlgorithm(BaseAlgorithm):
         rl_losses = torch.zeros(num_updates)
         spr_losses = torch.zeros(num_updates)
         for u in range(num_updates):
+            # Strict ``>`` mirrors the official ``training_steps > next_reset``
+            # (with ``reset_offset=1``): the k-th reset fires at grad step
+            # k*(reset_interval+1), so the reset scheduled exactly at the last
+            # gradient step of a run never fires. With ``>=`` a 100k-frame RR2
+            # run would shrink-and-perturb on its final update and hand a
+            # freshly reset policy to the last checkpoint / final eval.
             if (
                 self.reset_interval > 0
-                and self._steps_since_reset >= self.reset_interval
+                and self._steps_since_reset > self.reset_interval
                 and (self.no_resets_after == 0 or self._grad_steps < self.no_resets_after)
             ):
                 self._shrink_and_perturb()
