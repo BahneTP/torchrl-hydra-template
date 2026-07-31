@@ -1,6 +1,7 @@
 defaults:
   - _self_
   - paths: default
+  - trainer: default
   - algorithm: ???
   - environment: ???
   - environment@eval_environment: null   # optional eval env; falls back to environment
@@ -9,14 +10,9 @@ defaults:
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
-trainer:
-  _target_: src.trainers.StepTrainer
-  accelerator: cpu        # "cpu" | "gpu" | "mps"
-  devices: [0]            # GPU indices; ignored when accelerator=cpu
-  seed: 42
-  total_frames: 1_000_000
-  num_envs: 1             # number of parallel environments
-  log_every_n_steps: 1_000
+# Display name for the run (W&B). ``oc.select`` keeps this resolvable for env
+# configs without a ``task`` key. Experiments may override it.
+run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${now:%Y-%m-%d_%H-%M-%S}
 
 checkpoint:
   enabled: false
@@ -29,5 +25,5 @@ hydra:
   run:
     dir: ${paths.log_dir}/train/runs/${now:%Y-%m-%d_%H-%M-%S}
   sweep:
-    dir: logs/train/multiruns/${now:%Y-%m-%d_%H-%M-%S}
+    dir: ${paths.log_dir}/train/multiruns/${now:%Y-%m-%d_%H-%M-%S}
     subdir: ${hydra.job.num}

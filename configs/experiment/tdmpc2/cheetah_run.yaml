@@ -4,6 +4,7 @@
 defaults:
   - override /algorithm: tdmpc2
   - override /environment: dmc_cheetah_run
+  - override /trainer: gpu
   - override /logger: wandb
   - _self_
 
@@ -11,11 +12,8 @@ algorithm:
   compile: true  # torch.compile(mode="reduce-overhead"); upstream default on GPU
 
 trainer:
-  total_frames: 1_000_000
   seed: 1
-  accelerator: gpu
   num_envs: 1  # TD-MPC2 plans for a single environment
-  log_every_n_steps: 1_000
 
 checkpoint:
   enabled: true

@@ -8,16 +8,11 @@ defaults:
   - override /algorithm: ppo_atari
   - override /environment: jamesbond_train
   - override /environment@eval_environment: jamesbond_eval
+  - override /trainer: gpu
   - override /logger: wandb
   - _self_
 
-algorithm:
-  anneal_frames: 100_000  # = trainer.total_frames
-
 trainer:
   total_frames: 100_000
-  seed: 42
-  accelerator: gpu
-  devices: [0]
   num_envs: 8
   log_every_n_steps: 5_000

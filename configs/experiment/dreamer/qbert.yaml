@@ -3,21 +3,22 @@ defaults:
   - /algorithm/dreamer: 200m
   - override /algorithm: dreamer
   - override /environment: atari_dreamer
-  - override /logger: wandb_dreamer
+  - override /trainer: gpu
+  - override /logger: wandb
   - _self_
 
 env_id: qbert
+
+run_name: dreamer_${env_id}_${environment.benchmark}_${model_size}_${now:%Y-%m-%d_%H-%M-%S}
 
 environment:
   name: ALE/Qbert-v5
 
 trainer:
-  accelerator: gpu
-  devices: [1]
-  seed: 42
-  total_frames: 1.1e5 # 110k agent steps = 440k game frames; official DreamerV3 trains 10% past the 100k budget (eval/score_* still cut off at 400k frames)
-  num_envs: 1
-  log_every_n_steps: 1000
+  # 110k agent steps = 440k game frames; official DreamerV3 trains 10% past the
+  # 100k budget (eval/score_* still cuts off at 400k frames).
+  total_frames: 110_000
+  log_every_n_steps: 1_000
 
 env:
   encoder:

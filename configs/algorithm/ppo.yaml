@@ -23,7 +23,7 @@ value_network:
 lr: 3.0e-4
 adam_eps: 1.0e-5
 anneal_lr: true
-anneal_frames: 1_000_000  # keep equal to trainer.total_frames (lr reaches 0 at the end)
+anneal_frames: ${trainer.total_frames}  # lr reaches 0 at the end of training
 gamma: 0.99
 gae_lambda: 0.95
 num_epochs: 10

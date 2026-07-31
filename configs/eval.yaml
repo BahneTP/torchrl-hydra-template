@@ -1,22 +1,19 @@
 defaults:
   - _self_
   - paths: default
+  - trainer: default
   - algorithm: ???
   - environment: ???
   - environment@eval_environment: null   # optional eval env; falls back to environment
   - logger: []
+  - experiment: null
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
-trainer:
-  _target_: src.trainers.StepTrainer
-  accelerator: cpu
-  devices: [0]
-  seed: 42
-  total_frames: 0          # not used for eval, but required by trainer
-  num_envs: 1
-  log_every_n_steps: 1_000
-  num_eval_episodes: 10
+run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${now:%Y-%m-%d_%H-%M-%S}
+
+# Only trainer.seed, trainer.accelerator/devices and trainer.num_eval_episodes
+# are read on this path; trainer.total_frames is unused (eval never trains).
 
 checkpoint:
   resume_from: ???        # required: path to checkpoint file
