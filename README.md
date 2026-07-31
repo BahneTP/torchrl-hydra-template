@@ -55,6 +55,7 @@ Four derived rules:
 | PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`        |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DreamerV3 | DMC cheetah-run<br>(proprio) | `experiment=dreamer/dmc` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
 | BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
 
@@ -378,6 +379,32 @@ Two caveats worth knowing: openrlbenchmark skips runs that are not `finished`,
 and `--rliable` truncates every cell to the smallest seed count in the
 comparison — keep seed counts uniform across games.
 
+#### Multi-GPU benchmark sweeps
+
+`scripts/run_benchmarks.sh` runs a fixed cross-algorithm sweep — PPO, BBF and
+DreamerV3 on Atari-100k Jamesbond, plus PPO, TD-MPC2 and DreamerV3 on DMC
+cheetah-run — at three seeds each, load-balanced across GPUs.
+
+```shell
+./scripts/run_benchmarks.sh --dry-run           # print the 18 commands
+./scripts/run_benchmarks.sh --smoke             # tiny budgets; validates every spec
+./scripts/run_benchmarks.sh --gpus 2,3          # the real sweep
+./scripts/run_benchmarks.sh --only bbf,tdmpc2   # subset by job name
+```
+
+Workers pull from a shared queue instead of taking a fixed slice, because the
+jobs differ in cost by more than an order of magnitude — a static split would
+leave a GPU idle for hours. Each finished run drops a marker in
+`logs/benchmarks/done/`, so the sweep is interruptible and resumable. Runs are
+tagged `template` for `scripts/update_algo_results.py`.
+
+The job table applies two protocol harmonisations on top of each experiment's
+committed `evaluation` config, so runs in a comparison group report the same
+thing: all three Jamesbond runs take a 100-episode final evaluation (BBF's
+config already did), and all three cheetah-run runs evaluate every 10k agent
+steps (`ppo/dmc` commits `evaluation: none` to keep its 1M-frame run cheap).
+Both are visible as overrides in the table — edit them there.
+
 ### Trainer
 
 `StepTrainer` creates a `torchrl.collectors.Collector` from the algorithm's
@@ -462,7 +489,7 @@ configs/
     ├── ppo/{dmc,ale}.yaml
     ├── rainbow/atari100k.yaml   <- the Data-Efficient Rainbow preset
     ├── tdmpc2/dmc.yaml
-    ├── dreamer/atari100k.yaml
+    ├── dreamer/{atari100k,dmc}.yaml
     └── bbf/{atari100k,atari100k_rr8}.yaml
 ```
 

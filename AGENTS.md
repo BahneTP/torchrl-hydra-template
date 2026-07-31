@@ -20,6 +20,7 @@ Implemented experiments:
 | PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`      |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DreamerV3 | DMC cheetah-run<br>(proprio) | `experiment=dreamer/dmc` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
 | BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
 
@@ -545,7 +546,8 @@ configs/
   experiment/ppo/{dmc,ale}.yaml — PPO DMC cheetah-run (1M) / Atari-100k JamesBond (100k)
   experiment/tdmpc2/dmc.yaml    — TD-MPC2 DMC cheetah-run
   experiment/rainbow/atari100k.yaml — Data-Efficient Rainbow on Atari-100k
-  experiment/dreamer/atari100k.yaml — DreamerV3 on Atari-100k
+  experiment/dreamer/atari100k.yaml — DreamerV3 on Atari-100k (image obs)
+  experiment/dreamer/dmc.yaml       — DreamerV3 on DMC cheetah-run, proprio (mlp_keys=observation)
   experiment/bbf/atari100k.yaml     — BBF on Atari-100k (RR2 default; num_envs=1)
   experiment/bbf/atari100k_rr8.yaml — BBF flagship RR8 variant (same 40k-grad-step reset cadence)
   logger/{wandb,tensorboard}.yaml
@@ -611,6 +613,7 @@ python src/train.py experiment=ppo/ale             # PPO on Atari-100k JamesBond
 python src/train.py experiment=tdmpc2/dmc          # TD-MPC2 model-based control (1M frames, GPU)
 python src/train.py experiment=rainbow/atari100k   # DER on Atari-100k Jamesbond (100k frames, GPU)
 python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Hero (GPU)
+python src/train.py experiment=dreamer/dmc         # DreamerV3 on DMC cheetah-run, proprio (GPU)
 python src/train.py experiment=bbf/atari100k       # BBF on Atari-100k Jamesbond (RR2, GPU)
 python src/train.py experiment=bbf/atari100k_rr8   # BBF flagship RR8 (~4x compute)
 
@@ -619,6 +622,12 @@ python src/train.py experiment=dqn/ale environment.task=Breakout trainer.devices
 python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
 
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
+
+# Cross-algorithm sweep: 6 experiments x 3 seeds, queue-balanced over GPUs.
+# Resumable (markers in logs/benchmarks/done/); tags runs `template`.
+./scripts/run_benchmarks.sh --dry-run              # print the 18 commands
+./scripts/run_benchmarks.sh --smoke                # tiny budgets; validates every spec
+./scripts/run_benchmarks.sh --gpus 2,3             # the real sweep
 pytest tests/test_smoke.py -v
 
 # Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):

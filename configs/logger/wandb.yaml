@@ -5,7 +5,12 @@ logger:
     entity: null                # set via env var WANDB_ENTITY or CLI override
     name: ${run_name}           # override `run_name` in train.yaml or an experiment
     tags: []
-    mode: online                # "online" | "offline" | "disabled"
+    # "online" | "offline" | "disabled". Reads WANDB_MODE so the standard env
+    # var behaves as users expect: passing `mode=` to wandb.init() takes
+    # precedence over the environment, so a hardcoded `online` here would
+    # silently ignore `WANDB_MODE=offline` and push a throwaway run to the
+    # server. CLI overrides (`logger.0.mode=offline`) still win over both.
+    mode: ${oc.env:WANDB_MODE,online}
     save_dir: ${paths.log_dir}/wandb/
     job_type: train
     # Sidecar recording this run's W&B id next to the checkpoints, so
