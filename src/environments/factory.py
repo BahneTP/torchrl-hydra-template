@@ -23,7 +23,7 @@ _GYM_RENAME = {"frame_skip": "frameskip"}
 
 
 def make_env(
-    name: str,
+    name: str | None = None,
     num_envs: int = 1,
     device: str = "cpu",
     transforms: list | None = None,
@@ -37,8 +37,8 @@ def make_env(
     """Build a (possibly vectorised) ``TransformedEnv``.
 
     Args:
-        name: gymnasium env id (e.g. ``"CartPole-v1"``) or, for
-            ``backend="dm_control"``, a domain name (e.g. ``"cheetah"``).
+        name: gymnasium env id (e.g. ``"CartPole-v1"``). Not needed for
+            ``backend="dm_control"``, where the domain comes from ``task``.
         num_envs: number of parallel envs (>1 -> ``ParallelEnv``; workers
             always run on CPU because CUDA contexts cannot survive ``fork``).
         device: target device string.
@@ -57,8 +57,10 @@ def make_env(
         gym_backend: optional gym backend name for ``set_gym_backend``
             (e.g. ``"gymnasium"``); if ``None`` torchrl picks the default.
         backend: ``"gymnasium"`` (default) or ``"dm_control"``.
-        task: dm_control task name (e.g. ``"run"``); required for
-            ``backend="dm_control"``, ignored otherwise.
+        task: for ``backend="dm_control"``, the ``"<domain>-<task>"`` id
+            (e.g. ``"cheetah-run"``, ``"finger-turn_hard"``); required unless
+            ``name`` carries the domain and ``task`` the bare task name.
+            Ignored for ``backend="gymnasium"``.
     """
     worker_device = "cpu" if num_envs > 1 else device
     env_fn = _select_env_fn(
@@ -120,8 +122,33 @@ def _apply_transforms(base_env, transforms: list | None):
     return TransformedEnv(base_env, Compose(*transform_objects))
 
 
+def _split_dmc_id(name: str | None, task: str | None) -> tuple[str, str]:
+    """Resolve a dm_control ``(domain, task)`` pair from the env config.
+
+    The canonical form is a single ``task: "<domain>-<task>"`` id, split on
+    the *first* hyphen — dm_control uses underscores inside its own names
+    (``ball_in_cup-catch``, ``finger-turn_hard``, ``point_mass-easy``), so
+    the first hyphen is always the separator. An explicit ``name`` (domain)
+    plus a bare ``task`` is also accepted.
+    """
+    if name:
+        if not task:
+            raise ValueError(
+                "backend='dm_control' with an explicit `name` (domain) also "
+                "requires `task` (e.g. name: cheetah, task: run)."
+            )
+        return name, task
+    if not task or "-" not in task:
+        raise ValueError(
+            "backend='dm_control' requires `task: <domain>-<task>` "
+            f"(e.g. task: cheetah-run). Got name={name!r}, task={task!r}."
+        )
+    domain, subtask = task.split("-", 1)
+    return domain, subtask
+
+
 def _make_dmc_env(
-    name: str,
+    name: str | None,
     task: str | None,
     transforms: list | None,
     device: str,
@@ -131,10 +158,8 @@ def _make_dmc_env(
     os.environ.setdefault("MUJOCO_GL", "disabled")
     from torchrl.envs import DMControlEnv
 
-    if task is None:
-        raise ValueError("backend='dm_control' requires a `task` (e.g. task: run)")
-
-    base_env = DMControlEnv(name, task, device=device)
+    domain, subtask = _split_dmc_id(name, task)
+    base_env = DMControlEnv(domain, subtask, device=device)
     return _apply_transforms(base_env, transforms)
 
 
