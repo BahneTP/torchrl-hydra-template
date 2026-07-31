@@ -2,7 +2,7 @@
 
 Usage:
     python src/train.py experiment=reinforce/cartpole
-    python src/train.py experiment=dqn/cartpole logger=[wandb,tensorboard]
+    python src/train.py experiment=dqn/gym logger=[wandb,tensorboard]
     python src/train.py experiment=dqn/atari_breakout trainer.accelerator=gpu trainer.devices=[0]
     python src/train.py experiment=ppo/dmc_humanoid trainer.accelerator=gpu
 """

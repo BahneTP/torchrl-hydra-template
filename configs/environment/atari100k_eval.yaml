@@ -1,14 +1,28 @@
-name: ALE/${atari.game}-v5
+# Atari-100k benchmark protocol: gym-wrapper preprocessing (max-and-skip,
+# episodic life), no sticky actions, 84x84 grayscale, 4-frame stack.
+#
+# Switch game with a single override — atari100k_eval.yaml follows
+# automatically:
+#   python src/train.py experiment=rainbow/atari100k environment.task=Breakout
+task: Jamesbond
+name: ALE/${environment.task}-v5
 gym_backend: gymnasium
 gym_kwargs:
-  frameskip: 1
-  repeat_action_probability: 0.0
+  frame_skip: 1                   # raw ALE frames; MaxAndSkipEnv does the skipping
+  repeat_action_probability: 0.0  # Atari-100k protocol: no sticky actions
   disable_env_checker: true
   from_pixels: true
   pixels_only: false
   categorical_action_encoding: false
 
-# Evaluation keeps true game-over episodes and unclipped rewards.
+# Evaluation keeps true game-over episodes (no EpisodicLifeEnv) and unclipped
+# rewards (no SignTransform).
+#
+# `name` interpolates the TRAIN env's task on purpose: composed under
+# `environment@eval_environment`, `${environment.task}` resolves against the
+# config root, so `environment.task=Breakout` moves both envs at once. The
+# literal `task` above is inert in that position — it exists so this config
+# still resolves standalone (`python src/eval.py environment=atari100k_eval`).
 gymnasium_wrappers:
   - _target_: src.environments.atari_wrappers.MaxAndSkipEnv
     skip: 4

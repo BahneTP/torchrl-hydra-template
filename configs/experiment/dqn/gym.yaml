@@ -1,13 +1,15 @@
 # @package _global_
 # DQN on CartPole — replicates the torchrl SOTA reference
 # (https://github.com/pytorch/rl/blob/main/sota-implementations/dqn/dqn_cartpole.py).
-# All algorithm hyperparameters live in configs/algorithm/dqn.yaml;
-# only trainer-side settings are overridden here.
+# Run another task with: environment.task=Acrobot-v1
 defaults:
   - override /algorithm: dqn
-  - override /environment: cartpole
+  - override /environment: gym
   - override /logger: wandb
   - _self_
+
+environment:
+  task: CartPole-v1
 
 trainer:
   total_frames: 500_100

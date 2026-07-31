@@ -11,21 +11,30 @@ Implemented experiments:
 
 | Algorithm | Environment    | Experiment config             |
 |-----------|----------------|-------------------------------|
-| DQN       | CartPole-v1    | `experiment=dqn/cartpole`     |
-| DQN       | ALE/Pong-v5    | `experiment=dqn/pong`         |
-| DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah` |
-| A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`  |
-| PPO       | DMC cheetah-run | `experiment=ppo/dmc_cheetah_run` |
-| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/jamesbond` |
-| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
-| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
-| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=der/jamesbond` |
+| DQN       | CartPole-v1    | `experiment=dqn/gym`          |
+| DQN       | ALE/Pong-v5    | `experiment=dqn/ale`          |
+| DDPG      | HalfCheetah-v4 | `experiment=ddpg/gym`         |
+| A2C       | HalfCheetah-v4 | `experiment=a2c/gym`          |
+| PPO       | DMC cheetah-run | `experiment=ppo/dmc`         |
+| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
+| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`      |
+| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
 
 Other algorithms will follow.
 
-The Atari-100k configs (`configs/environment/atari100k_{train,eval}.yaml`) are
-game-generic: they interpolate `ALE/${atari.game}-v5`, and each experiment sets
-the global `atari.game` key (see `configs/experiment/der/jamesbond.yaml`).
+**Experiments are named after the benchmark, not the task.** The table shows
+each experiment's *default* task; every environment config exposes a single
+`task` key, so any other task is one override:
+
+```shell
+python src/train.py experiment=dqn/ale environment.task=Breakout
+python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
+```
+
+Eval env configs interpolate `name: ALE/${environment.task}-v5` — an *absolute*
+reference, so under the `eval_environment` package they resolve against the
+train env. One `environment.task=` moves both.
 Max-and-skip and episodic-life use `gymnasium_wrappers` (SB3-style gym wrappers
 in [`src/environments/atari_wrappers.py`](src/environments/atari_wrappers.py))
 so life loss is evaluated after each aggregated agent step; the rest of the
@@ -115,7 +124,7 @@ Rules:
   CartPole, `(4, 84, 84)` for stacked Atari frames) and `num_actions` is the
   discrete action count. For DDPG, `actor_network` and `value_network` use the
   same call signature with the continuous action vector size. Use the helpers
-  in `src/networks.py`:
+  in `src/components/networks.py`:
     - `make_mlp_q_net(obs_shape, num_actions, *, num_cells, activation_class)` —
       flattens `obs_shape` into a torchrl `MLP`. Default for vector observations.
     - `NatureDQN(obs_shape, num_actions, *, ...)` — Mnih et al. 2015 ConvNet+MLP
@@ -222,8 +231,8 @@ the unflattened batch (before `reshape(-1)`)** — with `num_envs > 1` the
 rollout is `[num_envs, T]` and GAE needs the trailing time dim. One
 `PPOAlgorithm` class covers vector and pixel inputs: pass `common_network`
 (e.g. `make_nature_cnn_trunk`) to share a trunk between actor and critic
-heads via `ActorValueOperator` (see `configs/algorithm/ppo_atari.yaml`);
-leave it `None` for separate MLPs (`configs/algorithm/ppo.yaml`). The
+heads via `ActorValueOperator` (the `algorithm/policy=nature_cnn_categorical`
+option); leave it `None` for separate MLPs (`algorithm/policy=mlp_normal`). The
 actor's distribution is picked from the action spec: `Categorical` over
 `logits` for discrete specs, `IndependentNormal` over `(loc, scale)` for
 continuous ones.
@@ -270,20 +279,27 @@ constructor defaults.
   `gym_kwargs`/`gym_backend` do not apply; the env is built via
   `torchrl.envs.DMControlEnv` and the factory sets `MUJOCO_GL=disabled`
   (headless) unless already set.
-- `task`: dm_control task name (e.g. `"run"`); required for
-  `backend: dm_control`, ignored otherwise.
+- `task`: **the single override axis of every environment config.** For
+  `backend: dm_control` it is the `"<domain>-<task>"` id (e.g. `"cheetah-run"`),
+  split on the first hyphen by the factory — dm_control uses underscores inside
+  its own names, so this is unambiguous. For gymnasium backends `name` is
+  derived from it by interpolation.
 
 ```yaml
-# configs/environment/cartpole.yaml
-name: CartPole-v1
+# configs/environment/gym.yaml — gymnasium state observations
+task: CartPole-v1
+name: ${environment.task}
 transforms:
+  - _target_: torchrl.envs.transforms.DoubleToFloat
+  - _target_: torchrl.envs.transforms.InitTracker
   - _target_: torchrl.envs.transforms.StepCounter
   - _target_: torchrl.envs.transforms.RewardSum
 ```
 
 ```yaml
-# configs/environment/pong_train.yaml — pixel-based Atari env
-name: ALE/Pong-v5
+# configs/environment/ale.yaml — pixel-based Atari env
+task: Pong
+name: ALE/${environment.task}-v5
 gym_backend: gymnasium
 gym_kwargs:
   frame_skip: 4
@@ -294,14 +310,13 @@ transforms:
   - _target_: torchrl.envs.NoopResetEnv
     noops: 30
     random: true
-  # ... (see configs/environment/pong_train.yaml for the full SOTA stack)
+  # ... (see configs/environment/ale.yaml for the full SOTA stack)
 ```
 
 ```yaml
-# configs/environment/dmc_cheetah_run.yaml — dm_control env
+# configs/environment/dmc.yaml — dm_control env
 backend: dm_control
-name: cheetah
-task: run
+task: cheetah-run
 transforms:
   - _target_: torchrl.envs.transforms.FrameSkipTransform  # action repeat 2
     frame_skip: 2
@@ -329,10 +344,10 @@ defaults:
   - environment: ???
   - environment@eval_environment: null   # default: no separate eval env
 
-# configs/experiment/dqn/pong.yaml
+# configs/experiment/dqn/ale.yaml
 defaults:
-  - override /environment: pong_train
-  - override /environment@eval_environment: pong_eval
+  - override /environment: ale
+  - override /environment@eval_environment: ale_eval
 ```
 
 `src/train.py` and `src/eval.py` build the eval `Environment` via
@@ -406,38 +421,35 @@ src/
     factory.py              — make_env: gymnasium/dm_control + transforms list + gym_kwargs/gym_backend
     atari_wrappers.py       — MaxAndSkip/EpisodicLife gym wrappers + MaxAndSkipTransform
   trainers/
-    BaseTrainer.py          — BaseTrainer ABC, TrainerEvent, Callback protocol, fire_callbacks
-    StepTrainer.py          — StepTrainer (Collector-driven loop)
+    base.py                 — BaseTrainer ABC, TrainerEvent, Callback protocol, fire_callbacks
+    step_trainer.py         — StepTrainer (Collector-driven loop)
   callbacks/                — ProgressCallback, CheckpointCallback, WandBLogger, TensorBoardLogger
   utils/                    — device resolution, seeding, callback builders
 configs/
-  algorithm/dqn.yaml        — DQN HPs (CartPole defaults); _partial_ replay_buffer + network
-  algorithm/dqn_atari.yaml  — DQN HPs (Atari/NatureDQN defaults; pixel obs)
-  algorithm/ddpg.yaml       — DDPG HPs (HalfCheetah defaults); _partial_ actor/critic/noise
-  algorithm/a2c.yaml        — A2C HPs (HalfCheetah/MuJoCo defaults); _partial_ actor/value
-  algorithm/ppo.yaml        — PPO HPs (cleanRL continuous-action defaults); _partial_ actor/value
-  algorithm/ppo_atari.yaml  — PPO HPs (shared CNN trunk; Atari-100k tuned); _partial_ common/actor/value
+  trainer/{default,cpu,gpu}.yaml — the loop (seed, total_frames, num_envs, logging, accelerator)
+  algorithm/dqn.yaml        — DQN HPs; _partial_ replay_buffer + `network` group
+  algorithm/ddpg.yaml       — DDPG HPs; _partial_ actor/critic/noise
+  algorithm/a2c.yaml        — A2C HPs; _partial_ actor/value
+  algorithm/ppo.yaml        — PPO HPs (cleanRL continuous-action defaults); `policy` group
   algorithm/tdmpc2.yaml     — TD-MPC2 HPs (model_size=5 preset; scalar knobs, no _partial_)
   algorithm/rainbow.yaml    — Rainbow HPs (standard Dopamine-style values; scalar knobs, no _partial_)
-  algorithm/der.yaml        — Data-Efficient Rainbow preset (Kaixhin/Rainbow data-efficient values)
-  environment/cartpole.yaml — env kwargs (name, transforms)
-  environment/pong_train.yaml — Atari Pong env (training transforms incl. EndOfLife + Sign + VecNorm)
-  environment/pong_eval.yaml  — Atari Pong env (eval transforms; drops EndOfLife + Sign + VecNorm)
-  environment/jamesbond_train.yaml — Atari JamesBond env (Atari-100k: no sticky actions)
-  environment/jamesbond_eval.yaml  — Atari JamesBond env (eval transforms; true game scores)
-  environment/halfcheetah.yaml — HalfCheetah-v4 (DoubleToFloat + InitTracker)
-  environment/dmc_cheetah_run.yaml — dm_control cheetah-run (FrameSkip 2 + CatTensors)
-  environment/dmc_cheetah_run_ppo.yaml — DMC cheetah-run for PPO (CatTensors + VecNorm + clips)
-  environment/atari100k_train.yaml — game-generic Atari-100k train env (gymnasium_wrappers: max-and-skip + episodic-life; life-loss terminals + clipped rewards)
-  environment/atari100k_eval.yaml  — game-generic Atari-100k eval env (max-and-skip only; true game-over, unclipped rewards)
-  experiment/dqn/cartpole.yaml — composed CartPole experiment
-  experiment/dqn/pong.yaml     — composed Atari Pong experiment
-  experiment/ddpg/halfcheetah.yaml — composed DDPG HalfCheetah experiment
-  experiment/a2c/halfcheetah.yaml — composed A2C HalfCheetah experiment
-  experiment/ppo/dmc_cheetah_run.yaml — composed PPO DMC cheetah-run experiment (1M frames)
-  experiment/ppo/jamesbond.yaml — composed PPO Atari-100k JamesBond experiment (100k steps)
-  experiment/tdmpc2/cheetah_run.yaml — composed TD-MPC2 DMC cheetah-run experiment
-  experiment/der/jamesbond.yaml — composed DER Atari-100k Jamesbond experiment (sets atari.game)
+  algorithm/dreamer.yaml    — DreamerV3 (+ dreamerpro.yaml, r2dreamer.yaml variants)
+  algorithm/network/{mlp_q,nature_dqn}.yaml — swappable DQN Q-network (state / pixels)
+  algorithm/policy/{mlp_normal,nature_cnn_categorical}.yaml — swappable PPO actor+critic(+trunk)
+  algorithm/dreamer/{12m..400m}.yaml — Dreamer model-size presets
+  environment/gym.yaml      — gymnasium state obs (classic control + MuJoCo)
+  environment/dmc.yaml      — dm_control, task: <domain>-<task> (FrameSkip 2 + CatTensors)
+  environment/ale.yaml      — Atari, standard protocol (EndOfLife + Sign + VecNorm)
+  environment/ale_eval.yaml — same without those three (true game scores)
+  environment/atari100k.yaml      — Atari-100k protocol (gymnasium_wrappers: max-and-skip + episodic-life; clipped rewards)
+  environment/atari100k_eval.yaml — same without episodic-life / Sign (true game-over, unclipped)
+  experiment/dqn/{gym,ale}.yaml — DQN on CartPole / Atari Pong (40M frames)
+  experiment/ddpg/gym.yaml      — DDPG HalfCheetah (1M frames)
+  experiment/a2c/gym.yaml       — A2C HalfCheetah (1M frames)
+  experiment/ppo/{dmc,ale}.yaml — PPO DMC cheetah-run (1M) / Atari-100k JamesBond (100k)
+  experiment/tdmpc2/dmc.yaml    — TD-MPC2 DMC cheetah-run
+  experiment/rainbow/atari100k.yaml — Data-Efficient Rainbow on Atari-100k
+  experiment/dreamer/atari100k.yaml — DreamerV3 on Atari-100k
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
@@ -488,20 +500,26 @@ Example: `$Q(s, a; \theta)$`, `$\theta_{\text{target}}$`.
 ## Running
 
 ```shell
-python src/train.py experiment=dqn/cartpole
-python src/train.py experiment=dqn/cartpole algorithm.lr=1e-3
-python src/train.py experiment=dqn/cartpole 'logger=[wandb]'  # experiments default to wandb; plain CLI defaults to tensorboard
-python src/train.py experiment=dqn/pong            # Atari Pong (40M frames, GPU)
-python src/train.py experiment=ddpg/halfcheetah    # DDPG continuous control (1M frames)
-python src/train.py experiment=a2c/halfcheetah     # A2C on-policy continuous control (1M frames)
-python src/train.py experiment=ppo/dmc_cheetah_run # PPO on DMC cheetah-run (1M frames)
-python src/train.py experiment=ppo/jamesbond       # PPO on Atari-100k JamesBond (100k steps, GPU)
-python src/train.py experiment=tdmpc2/cheetah_run  # TD-MPC2 model-based control (1M frames, GPU)
-python src/train.py experiment=der/jamesbond  # DER on Atari-100k Jamesbond (100k frames, GPU)
+python src/train.py experiment=dqn/gym
+python src/train.py experiment=dqn/gym algorithm.lr=1e-3
+python src/train.py experiment=dqn/gym 'logger=[wandb]'  # experiments default to wandb; plain CLI defaults to tensorboard
+python src/train.py experiment=dqn/ale             # Atari Pong (40M frames, GPU)
+python src/train.py experiment=ddpg/gym            # DDPG continuous control (1M frames)
+python src/train.py experiment=a2c/gym             # A2C on-policy continuous control (1M frames)
+python src/train.py experiment=ppo/dmc             # PPO on DMC cheetah-run (1M frames)
+python src/train.py experiment=ppo/ale             # PPO on Atari-100k JamesBond (100k steps, GPU)
+python src/train.py experiment=tdmpc2/dmc          # TD-MPC2 model-based control (1M frames, GPU)
+python src/train.py experiment=rainbow/atari100k   # DER on Atari-100k Jamesbond (100k frames, GPU)
+python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Hero (GPU)
+
+# Any task within a benchmark is one override; GPU index is not committed:
+python src/train.py experiment=dqn/ale environment.task=Breakout trainer.devices=[3]
+python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
+
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
 pytest tests/test_smoke.py -v
 
 # Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):
-python src/eval.py algorithm=tdmpc2 environment=dmc_cheetah_run \
+python src/eval.py algorithm=tdmpc2 environment=dmc \
   checkpoint.resume_from=$PWD/checkpoints/cheetah-run-1.pt trainer.accelerator=gpu
 ```

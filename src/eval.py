@@ -1,7 +1,7 @@
 """Evaluation entry point.
 
 Usage:
-    python src/eval.py experiment=dqn/cartpole checkpoint.resume_from=logs/.../last.pt
+    python src/eval.py experiment=dqn/gym checkpoint.resume_from=logs/.../last.pt
 """
 from __future__ import annotations
 

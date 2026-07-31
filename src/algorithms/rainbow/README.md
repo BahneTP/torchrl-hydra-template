@@ -88,14 +88,29 @@ for each collector batch:                         # step() (overrides DQNAlgorit
   `DQNAlgorithm` — the attribute names (`q_actor`, `optimizer`,
   `_explore_policy`, `_collected_frames`) match.
 
+## Run
+
+```shell
+# Data-Efficient Rainbow on Atari-100k (JamesBond by default)
+python src/train.py experiment=rainbow/atari100k
+python src/train.py experiment=rainbow/atari100k environment.task=Breakout
+```
+
+`configs/algorithm/rainbow.yaml` holds the standard (Dopamine-style) Rainbow
+hyperparameters. The **Data-Efficient Rainbow** preset — n-step 20, target
+update every 2000 gradient steps, the smaller 2-layer encoder with hidden dim
+256, and a 100k replay — is a property of the Atari-100k budget, so it lives in
+`configs/experiment/rainbow/atari100k.yaml` rather than in a second algorithm
+config. To run standard Rainbow at a longer budget, drop those overrides.
+
 ## Environment
 
-`configs/environment/atari100k_{train,eval}.yaml` are game-generic: they
-interpolate `ALE/${atari.game}-v5` and each experiment sets the global
-`atari.game` key. Max-and-skip and episodic-life (train only) are applied via
-`gymnasium_wrappers` so life loss is checked after each aggregated agent step;
-image preprocessing uses TorchRL transforms. Frame stacking uses `CatFrames`
-(same pattern as `pong_train.yaml`). Training uses life-loss terminals and
+`configs/environment/atari100k{,_eval}.yaml` are game-generic: they interpolate
+`ALE/${environment.task}-v5`, so `environment.task=Breakout` switches both the
+train and the eval env at once. Max-and-skip and episodic-life (train only) are
+applied via `gymnasium_wrappers` so life loss is checked after each aggregated
+agent step; image preprocessing uses TorchRL transforms. Frame stacking uses
+`CatFrames` (same pattern as `ale.yaml`). Training uses life-loss terminals and
 rewards clipped to $\{-1, 0, 1\}$ (`SignTransform`, applied after `RewardSum`
 so logged episode returns stay unclipped); evaluation uses true game-over
 episodes and raw rewards.
@@ -125,5 +140,5 @@ episodes and raw rewards.
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [der_atari_jamesbond_2026-07-16_08-20-41](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/h02sdvvw) | ALE/Jamesbond-v5 | `experiment=der/jamesbond` | 1 | 100,000 | 183.3 | best train/episode_reward |
-| [der_atari_jamesbond_2026-07-16_10-37-30](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/x85cxocm) | ALE/Jamesbond-v5 | `experiment=der/jamesbond` | 1 | 100,000 | 100.0 | best train/episode_reward |
+| [der_atari_jamesbond_2026-07-16_08-20-41](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/h02sdvvw) | ALE/Jamesbond-v5 | `experiment=rainbow/atari100k` | 1 | 100,000 | 183.3 | best train/episode_reward |
+| [der_atari_jamesbond_2026-07-16_10-37-30](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/x85cxocm) | ALE/Jamesbond-v5 | `experiment=rainbow/atari100k` | 1 | 100,000 | 100.0 | best train/episode_reward |

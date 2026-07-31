@@ -1,6 +1,6 @@
 # Rainbow (Hessel et al. 2018) with standard (Dopamine-style) hyperparameters
 # on pixels. For the official Atari-100k data-efficient preset, use
-# configs/algorithm/der.yaml.
+# configs/experiment/rainbow/atari100k.yaml.
 _target_: src.algorithms.rainbow.RainbowAlgorithm
 
 obs_key: pixels

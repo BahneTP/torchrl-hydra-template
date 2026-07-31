@@ -36,15 +36,19 @@ Two derived rules:
 
 | Algorithm | Environment    | Config                          |
 |-----------|----------------|---------------------------------|
-| DQN       | CartPole-v1    | `experiment=dqn/cartpole`       |
-| DQN       | ALE/Pong-v5    | `experiment=dqn/pong`           |
-| DDPG      | HalfCheetah-v4 | `experiment=ddpg/halfcheetah`   |
-| A2C       | HalfCheetah-v4 | `experiment=a2c/halfcheetah`    |
-| PPO       | DMC cheetah-run | `experiment=ppo/dmc_cheetah_run` |
-| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/jamesbond` |
-| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/cheetah_run` |
-| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/hero` |
-| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=der/jamesbond` |
+| DQN       | CartPole-v1    | `experiment=dqn/gym`            |
+| DQN       | ALE/Pong-v5    | `experiment=dqn/ale`            |
+| DDPG      | HalfCheetah-v4 | `experiment=ddpg/gym`           |
+| A2C       | HalfCheetah-v4 | `experiment=a2c/gym`            |
+| PPO       | DMC cheetah-run | `experiment=ppo/dmc`           |
+| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
+| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`        |
+| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
+
+Every experiment names a *benchmark*, not a task. Switch task with one override:
+`experiment=dqn/ale environment.task=Breakout`,
+`experiment=tdmpc2/dmc environment.task=walker-walk`.
 
 Other algorithms will follow.
 
@@ -98,7 +102,7 @@ cd torchrl-hydra-template
 uv sync
 source .venv/bin/activate
 
-python src/train.py experiment=dqn/cartpole
+python src/train.py experiment=dqn/gym
 ```
 
 A full training run (500k frames, ~7 minutes on CPU) reproduces the torchrl SOTA
@@ -108,7 +112,7 @@ For Atari Pong (mirrors the torchrl SOTA `dqn_atari.py` reference, 40M frames on
 GPU):
 
 ```shell
-python src/train.py experiment=dqn/pong
+python src/train.py experiment=dqn/ale
 ```
 
 ## Architecture
@@ -183,16 +187,21 @@ This buys three things:
 
 `replay_buffer` and `network` are `Callable` factories rather than scalars because
 they encode design decisions (which storage backend, what MLP shape). Their defaults
-live in `src/algorithms/dqn/dqn.py` as constructor kwargs and inline lambdas. To
-swap them, edit those defaults or pass a different factory in code.
-
-`train.py` unpacks `cfg.algorithm` as `**kwargs`, so YAML values override defaults
-and CLI overrides override YAML:
+live in `src/algorithms/dqn/dqn.py` as constructor kwargs; in YAML they are
+`_partial_` blocks that `train.py` turns into real callables:
 
 ```python
-alg_kwargs = {k: v for k, v in OmegaConf.to_container(cfg.algorithm, resolve=True).items()
-              if k != "_target_"}
-algorithm = AlgClass(device=None, **alg_kwargs)
+algorithm = instantiate(cfg.algorithm, device=None)   # recursive: _partial_ -> callable
+```
+
+Networks that have more than one variant live in their own config group, so a
+swap replaces the whole node. Hydra *merges* dicts, so patching only
+`network._target_` would leave the previous option's kwargs behind — silently,
+when the new factory happens to accept them:
+
+```shell
+python src/train.py experiment=dqn/gym algorithm/network=nature_dqn
+python src/train.py experiment=ppo/dmc algorithm/policy=nature_cnn_categorical
 ```
 
 ### Environment
@@ -200,19 +209,24 @@ algorithm = AlgClass(device=None, **alg_kwargs)
 Just an env name plus an explicit transforms list:
 
 ```yaml
-# configs/environment/cartpole.yaml
-name: CartPole-v1
+# configs/environment/gym.yaml
+task: CartPole-v1        # the single override axis
+name: ${environment.task}
 transforms:
   - _target_: torchrl.envs.transforms.StepCounter
 ```
+
+Every environment config exposes `task`, so switching task never means editing
+YAML: `environment.task=Acrobot-v1`.
 
 For envs that need extra `GymEnv` constructor arguments (e.g. `frame_skip`,
 `from_pixels` for pixel-based Atari), pass them via `gym_kwargs`, and pin the
 gym backend with `gym_backend`:
 
 ```yaml
-# configs/environment/pong_train.yaml
-name: ALE/Pong-v5
+# configs/environment/ale.yaml
+task: Pong
+name: ALE/${environment.task}-v5
 gym_backend: gymnasium
 gym_kwargs:
   frame_skip: 4
@@ -232,15 +246,16 @@ them on top of `GymEnv(name, **gym_kwargs)`, and wraps in `ParallelEnv` when
 `num_envs > 1`.
 
 Backends supported: **gymnasium** (default) and **dm_control**. For DeepMind
-Control Suite tasks set `backend: dm_control` and give the domain as `name` plus
-a `task`; the factory builds a `torchrl.envs.DMControlEnv` and defaults
-`MUJOCO_GL=disabled` (headless, no rendering) unless you set it yourself:
+Control Suite tasks set `backend: dm_control` and give a `<domain>-<task>` id as
+`task`; the factory splits it on the first hyphen (dm_control uses underscores
+inside its own names, so this is unambiguous), builds a
+`torchrl.envs.DMControlEnv`, and defaults `MUJOCO_GL=disabled` (headless, no
+rendering) unless you set it yourself:
 
 ```yaml
-# configs/environment/dmc_cheetah_run.yaml
+# configs/environment/dmc.yaml
 backend: dm_control
-name: cheetah
-task: run
+task: cheetah-run
 transforms:
   - _target_: torchrl.envs.transforms.FrameSkipTransform   # action repeat 2
     frame_skip: 2
@@ -258,14 +273,18 @@ life loss during training but not during eval), declare a second env via the
 Hydra package override:
 
 ```yaml
-# configs/experiment/dqn/pong.yaml
+# configs/experiment/dqn/ale.yaml
 defaults:
-  - override /environment: pong_train
-  - override /environment@eval_environment: pong_eval
+  - override /environment: ale
+  - override /environment@eval_environment: ale_eval
 ```
 
 When `eval_environment` is set, `BaseTrainer.evaluate()` uses it; otherwise it
 falls back to `environment`.
+
+The `_eval` config interpolates `name: ALE/${environment.task}-v5` — an
+*absolute* reference, so composed under the `eval_environment` package it reads
+the train env's task. One `environment.task=Breakout` moves both envs.
 
 ### Trainer
 
@@ -295,43 +314,51 @@ learned.
 
 ```
 configs/
-├── train.yaml              <- top-level defaults (trainer, checkpoint)
+├── train.yaml              <- top-level defaults (run_name, checkpoint)
 ├── eval.yaml               <- evaluation defaults
-├── algorithm/
-│   ├── dqn.yaml            <- DQN HPs (CartPole defaults)
-│   ├── dqn_atari.yaml      <- DQN HPs (Atari/NatureDQN defaults)
-│   ├── ddpg.yaml           <- DDPG HPs (HalfCheetah defaults)
-│   ├── a2c.yaml            <- A2C HPs (HalfCheetah/MuJoCo defaults)
+├── trainer/
+│   ├── default.yaml        <- the loop: seed, total_frames, num_envs, logging
+│   ├── cpu.yaml
+│   └── gpu.yaml            <- accelerator: gpu (set devices=[N] on the CLI)
+├── algorithm/              <- one config per algorithm class; no env specifics
+│   ├── dqn.yaml            <- DQN HPs
+│   ├── ddpg.yaml           <- DDPG HPs
+│   ├── a2c.yaml            <- A2C HPs
 │   ├── ppo.yaml            <- PPO HPs (cleanRL continuous-action defaults)
-│   ├── ppo_atari.yaml      <- PPO HPs (shared CNN trunk, Atari-100k tuned)
-│   └── tdmpc2.yaml         <- TD-MPC2 HPs (model_size=5, DMC defaults)
-├── environment/
-│   ├── cartpole.yaml       <- env name + transforms
-│   ├── pong_train.yaml     <- Pong with EndOfLife + Sign + VecNorm (training)
-│   ├── pong_eval.yaml      <- Pong without those transforms (evaluation)
-│   ├── jamesbond_train.yaml <- JamesBond (Atari-100k: no sticky actions)
-│   ├── jamesbond_eval.yaml  <- JamesBond eval variant (true game scores)
-│   ├── halfcheetah.yaml    <- HalfCheetah-v4 (DoubleToFloat + InitTracker)
-│   ├── dmc_cheetah_run.yaml <- dm_control cheetah-run (action repeat 2, flat obs)
-│   └── dmc_cheetah_run_ppo.yaml <- DMC cheetah-run for PPO (VecNorm + clipping)
+│   ├── rainbow.yaml        <- Rainbow HPs
+│   ├── tdmpc2.yaml         <- TD-MPC2 HPs (model_size=5)
+│   ├── dreamer.yaml        <- DreamerV3 (+ dreamerpro.yaml, r2dreamer.yaml)
+│   ├── network/            <- swappable Q-network (DQN)
+│   │   ├── mlp_q.yaml      <- state obs
+│   │   └── nature_dqn.yaml <- pixel obs
+│   ├── policy/             <- swappable actor/critic/trunk (PPO)
+│   │   ├── mlp_normal.yaml <- continuous control, state obs
+│   │   └── nature_cnn_categorical.yaml  <- discrete control, pixel obs
+│   └── dreamer/            <- model-size presets (12m ... 400m)
+├── environment/            <- one config per benchmark; pick task with `task`
+│   ├── gym.yaml            <- gymnasium state obs (classic control + MuJoCo)
+│   ├── dmc.yaml            <- dm_control, task: <domain>-<task>
+│   ├── ale.yaml            <- Atari, standard protocol (train)
+│   ├── ale_eval.yaml       <- same without EndOfLife / Sign / VecNorm
+│   ├── atari100k.yaml      <- Atari-100k protocol (train)
+│   └── atari100k_eval.yaml <- same without EpisodicLife / Sign
 ├── logger/
 │   ├── wandb.yaml
 │   └── tensorboard.yaml
 ├── paths/default.yaml
-└── experiment/
-    ├── dqn/
-    │   ├── cartpole.yaml   <- composed: algorithm + environment + trainer overrides
-    │   └── pong.yaml       <- composed Atari Pong experiment
-    ├── ddpg/
-    │   └── halfcheetah.yaml <- composed DDPG HalfCheetah experiment
-    ├── a2c/
-    │   └── halfcheetah.yaml <- composed A2C HalfCheetah experiment
-    ├── ppo/
-    │   ├── dmc_cheetah_run.yaml <- composed PPO DMC cheetah-run experiment (1M)
-    │   └── jamesbond.yaml       <- composed PPO Atari-100k JamesBond experiment
-    └── tdmpc2/
-        └── cheetah_run.yaml <- composed TD-MPC2 DMC cheetah-run experiment
+└── experiment/             <- algorithm x benchmark, plus task/budget overrides
+    ├── dqn/{gym,ale}.yaml
+    ├── ddpg/gym.yaml
+    ├── a2c/gym.yaml
+    ├── ppo/{dmc,ale}.yaml
+    ├── rainbow/atari100k.yaml   <- the Data-Efficient Rainbow preset
+    ├── tdmpc2/dmc.yaml
+    └── dreamer/atari100k.yaml
 ```
+
+Anything that depends on the *task* — pixel networks, replay capacity,
+exploration schedules, episode length, training budget — lives in the
+experiment. `configs/algorithm/*.yaml` describes the algorithm only.
 
 ### Override hierarchy
 
@@ -340,7 +367,7 @@ Python __init__ defaults  <-  configs/algorithm/dqn.yaml  <-  experiment config 
 ```
 
 ```shell
-python src/train.py experiment=dqn/cartpole algorithm.lr=1e-3 trainer.total_frames=200_000
+python src/train.py experiment=dqn/gym algorithm.lr=1e-3 trainer.total_frames=200_000
 ```
 
 ## Logging
@@ -350,9 +377,9 @@ Defaults: plain CLI runs log to **tensorboard**; runs launched via
 `tensorboard`:
 
 ```shell
-python src/train.py experiment=dqn/cartpole 'logger=[wandb,tensorboard]'
-python src/train.py experiment=dqn/cartpole 'logger=[tensorboard]'
-python src/train.py experiment=dqn/cartpole logger=[]
+python src/train.py experiment=dqn/gym 'logger=[wandb,tensorboard]'
+python src/train.py experiment=dqn/gym 'logger=[tensorboard]'
+python src/train.py experiment=dqn/gym logger=[]
 ```
 
 ## Callbacks
@@ -378,7 +405,13 @@ Built-in callbacks: `ProgressCallback` (tqdm bar), `CheckpointCallback`,
    `get_explore_policy()`, `get_collector_config()`,
    `_get_training_state()`, `_load_training_state()`.
 3. Add `configs/algorithm/my_algo.yaml` mirroring scalar defaults from `__init__`.
-4. Add `configs/experiment/my_algo/<env>.yaml` composing your algorithm + env.
+   Keep it free of task specifics — no pixel networks, no per-benchmark budgets.
+   If a network has more than one variant, give it a config group under
+   `configs/algorithm/network/` or `configs/algorithm/policy/`.
+4. Add `configs/experiment/my_algo/<benchmark>.yaml` composing algorithm +
+   environment + trainer, and put the task-dependent overrides there. Name it
+   after the benchmark (`gym`, `dmc`, `ale`, `atari100k`), not the task — the
+   task is an override.
 5. Add a smoke test in `tests/test_smoke.py`.
 6. Update `README.md` and `AGENTS.md`.
 

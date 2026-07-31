@@ -1,12 +1,14 @@
 # @package _global_
 # DDPG on HalfCheetah-v4 — replicates the torchrl SOTA reference
 # (https://github.com/pytorch/rl/blob/main/sota-implementations/ddpg/ddpg.py).
-# All algorithm hyperparameters live in configs/algorithm/ddpg.yaml;
-# only trainer-side settings are overridden here.
+# Run another task with: environment.task=Ant-v4
 defaults:
   - override /algorithm: ddpg
-  - override /environment: halfcheetah
+  - override /environment: gym
   - override /logger: wandb
   - _self_
+
+environment:
+  task: HalfCheetah-v4
 
 # trainer/default.yaml already provides cpu / 1M frames / 1 env / seed 42.
