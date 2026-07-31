@@ -44,7 +44,7 @@ def _dqn_overrides() -> list[str]:
 
 def test_smoke_dqn_cartpole():
     """DQN on CartPole-v1: discrete actions, MLP Q-network, replay buffer."""
-    cfg = load_experiment_cfg("dqn/cartpole", _dqn_overrides())
+    cfg = load_experiment_cfg("dqn/gym", _dqn_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -72,7 +72,7 @@ def _dqn_pong_overrides() -> list[str]:
 def test_smoke_dqn_pong():
     """DQN on ALE/Pong-v5: pixel obs, NatureDQN CNN, eval-env split."""
     pytest.importorskip("ale_py")  # ALE is an optional system dep
-    cfg = load_experiment_cfg("dqn/pong", _dqn_pong_overrides())
+    cfg = load_experiment_cfg("dqn/ale", _dqn_pong_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -100,7 +100,7 @@ def _ddpg_overrides() -> list[str]:
 def test_smoke_ddpg_halfcheetah():
     """DDPG on HalfCheetah-v4: continuous actions, MLP actor/critic, OU noise."""
     pytest.importorskip("mujoco")  # MuJoCo is an optional system dep
-    cfg = load_experiment_cfg("ddpg/halfcheetah", _ddpg_overrides())
+    cfg = load_experiment_cfg("ddpg/gym", _ddpg_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -125,7 +125,7 @@ def _ppo_overrides() -> list[str]:
 def test_smoke_ppo_dmc_cheetah():
     """PPO on DMC cheetah-run: dm_control backend, Normal + clip policy."""
     pytest.importorskip("dm_control")  # DMC is an optional system dep
-    cfg = load_experiment_cfg("ppo/dmc_cheetah_run", _ppo_overrides())
+    cfg = load_experiment_cfg("ppo/dmc", _ppo_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -136,7 +136,7 @@ def test_smoke_ppo_dmc_cheetah():
 def test_smoke_ppo_jamesbond():
     """PPO on ALE/Jamesbond-v5: pixel obs, shared CNN trunk, eval-env split."""
     pytest.importorskip("ale_py")  # ALE is an optional system dep
-    cfg = load_experiment_cfg("ppo/jamesbond", [*_ppo_overrides(), "trainer.num_envs=1"])
+    cfg = load_experiment_cfg("ppo/ale", [*_ppo_overrides(), "trainer.num_envs=1"])
     from src.train import _train
 
     metrics = _train(cfg)
@@ -175,7 +175,7 @@ def _tdmpc2_overrides() -> list[str]:
 def test_smoke_tdmpc2_cheetah_run():
     """TD-MPC2 on dm_control cheetah-run: world model, MPPI planning, slice buffer."""
     pytest.importorskip("dm_control")  # dm_control is an optional system dep
-    cfg = load_experiment_cfg("tdmpc2/cheetah_run", _tdmpc2_overrides())
+    cfg = load_experiment_cfg("tdmpc2/dmc", _tdmpc2_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -198,7 +198,7 @@ def _a2c_overrides() -> list[str]:
 def test_smoke_a2c_halfcheetah():
     """A2C on HalfCheetah-v4: continuous actions, stochastic actor + GAE."""
     pytest.importorskip("mujoco")  # MuJoCo is an optional system dep
-    cfg = load_experiment_cfg("a2c/halfcheetah", _a2c_overrides())
+    cfg = load_experiment_cfg("a2c/gym", _a2c_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -226,7 +226,7 @@ def _der_overrides() -> list[str]:
 def test_smoke_der_jamesbond():
     """DER on ALE/Jamesbond-v5 (Atari-100k): C51 + noisy nets + prioritized replay."""
     pytest.importorskip("ale_py")  # ALE is an optional system dep
-    cfg = load_experiment_cfg("der/jamesbond", _der_overrides())
+    cfg = load_experiment_cfg("rainbow/atari100k", _der_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -258,11 +258,11 @@ def _bbf_overrides() -> list[str]:
     ]
 
 
-def test_smoke_bbf_jamesbond():
+def test_smoke_bbf_atari100k():
     """BBF on ALE/Jamesbond-v5 (Atari-100k): hand-written C51 + SPR + resets +
     annealed n-step/discount over a torchrl PrioritizedSliceSampler buffer."""
     pytest.importorskip("ale_py")  # ALE is an optional system dep
-    cfg = load_experiment_cfg("bbf/jamesbond", _bbf_overrides())
+    cfg = load_experiment_cfg("bbf/atari100k", _bbf_overrides())
     from src.train import _train
 
     metrics = _train(cfg)
@@ -301,7 +301,7 @@ def _dreamer_overrides() -> list[str]:
 def test_smoke_dreamer_hero():
     """DreamerV3 on ALE/Hero-v5: pixel obs, RSSM world model, actor-critic."""
     pytest.importorskip("ale_py")
-    cfg = load_experiment_cfg("dreamer/hero", _dreamer_overrides())
+    cfg = load_experiment_cfg("dreamer/atari100k", _dreamer_overrides())
     from src.train import _train
 
     metrics = _train(cfg)

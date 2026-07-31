@@ -56,7 +56,7 @@ class PPOAlgorithm(BaseAlgorithm):
     target networks, no warm-up phase.
 
     One class covers both benchmark setups; the network factories decide the
-    architecture (``configs/algorithm/ppo.yaml`` vs ``ppo_atari.yaml``):
+    architecture (``algorithm/policy=mlp_normal`` vs ``nature_cnn_categorical``):
 
     - **State inputs** (default): separate actor / critic MLPs on ``obs_key``.
       The actor outputs the mean of a Normal with a state-independent learned

@@ -25,11 +25,11 @@ def registry() -> list[ExperimentSpec]:
 
 def test_load_experiment_registry_includes_known_experiments(registry):
     paths = {spec.path for spec in registry}
-    assert "dqn/cartpole" in paths
-    assert "dqn/pong" in paths
-    assert "ddpg/halfcheetah" in paths
-    assert "a2c/halfcheetah" in paths
-    assert "der/jamesbond" in paths
+    assert "dqn/gym" in paths
+    assert "dqn/ale" in paths
+    assert "ddpg/gym" in paths
+    assert "a2c/gym" in paths
+    assert "rainbow/atari100k" in paths
 
 
 def test_infer_experiment_config_cartpole(registry):
@@ -38,7 +38,7 @@ def test_infer_experiment_config_cartpole(registry):
         "environment": {"name": "CartPole-v1"},
         "trainer": {"seed": 42, "total_frames": 500_100},
     }
-    assert infer_experiment_config(config, registry) == "experiment=dqn/cartpole"
+    assert infer_experiment_config(config, registry) == "experiment=dqn/gym"
 
 
 def test_infer_experiment_config_pong(registry):
@@ -50,7 +50,7 @@ def test_infer_experiment_config_pong(registry):
         "environment": {"name": "ALE/Pong-v5"},
         "trainer": {"seed": 42, "total_frames": 40_000_100},
     }
-    assert infer_experiment_config(config, registry) == "experiment=dqn/pong"
+    assert infer_experiment_config(config, registry) == "experiment=dqn/ale"
 
 
 def test_infer_experiment_config_der_jamesbond(registry):
@@ -60,11 +60,13 @@ def test_infer_experiment_config_der_jamesbond(registry):
             "obs_key": "pixels",
             "encoder_type": "data_efficient",
         },
-        "environment": {"name": "ALE/Jamesbond-v5"},
-        "atari": {"game": "Jamesbond"},
+        "environment": {
+            "name": "ALE/Jamesbond-v5",
+            "gymnasium_wrappers": [{"_target_": "src.environments.atari_wrappers.MaxAndSkipEnv"}],
+        },
         "trainer": {"seed": 1, "total_frames": 100_000},
     }
-    assert infer_experiment_config(config, registry) == "experiment=der/jamesbond"
+    assert infer_experiment_config(config, registry) == "experiment=rainbow/atari100k"
 
 
 def test_infer_experiment_config_halfcheetah_ddpg(registry):
@@ -73,7 +75,89 @@ def test_infer_experiment_config_halfcheetah_ddpg(registry):
         "environment": {"name": "HalfCheetah-v4"},
         "trainer": {"seed": 42, "total_frames": 1_000_000},
     }
-    assert infer_experiment_config(config, registry) == "experiment=ddpg/halfcheetah"
+    assert infer_experiment_config(config, registry) == "experiment=ddpg/gym"
+
+
+def test_infer_experiment_config_emits_task_override(registry):
+    """A game the experiment does not default to still resolves, as an override."""
+    config = {
+        "algorithm": {
+            "_target_": "src.algorithms.dqn.DQNAlgorithm",
+            "obs_key": "pixels",
+        },
+        "environment": {"name": "ALE/Breakout-v5"},
+        "trainer": {"seed": 42, "total_frames": 40_000_100},
+    }
+    assert infer_experiment_config(config, registry) == (
+        "experiment=dqn/ale environment.task=Breakout"
+    )
+
+
+def test_infer_experiment_config_matches_legacy_dmc_shape(registry):
+    """Historical runs logged dm_control as name: cheetah + task: run."""
+    config = {
+        "algorithm": {"_target_": "src.algorithms.tdmpc2.TDMPC2Algorithm"},
+        "environment": {"backend": "dm_control", "name": "cheetah", "task": "run"},
+        "trainer": {"seed": 1, "total_frames": 1_000_000},
+    }
+    assert infer_experiment_config(config, registry) == "experiment=tdmpc2/dmc"
+
+
+def test_infer_experiment_config_matches_legacy_algorithm_target(registry):
+    """Runs logged before the dreamer package re-export shortened `_target_`."""
+    config = {
+        "algorithm": {
+            "_target_": "src.algorithms.dreamer.dreamer.DreamerAlgorithm",  # old path
+            "dreamer_config": {"_target_": "src.algorithms.dreamer.model.DreamerV3"},
+        },
+        "environment": {"name": "ALE/Hero-v5"},
+        "trainer": {"seed": 42, "total_frames": 110_000},
+    }
+    assert infer_experiment_config(config, registry) == "experiment=dreamer/atari100k"
+
+
+def test_infer_experiment_config_dreamer_variant(registry):
+    """R2Dreamer runs resolve to the dreamer experiment plus an algorithm override."""
+    config = {
+        "algorithm": {
+            "_target_": "src.algorithms.dreamer.DreamerAlgorithm",
+            "dreamer_config": {"_target_": "src.algorithms.dreamer.model.R2Dreamer"},
+        },
+        "environment": {
+            "name": "ALE/Hero-v5",
+            "gymnasium_wrappers": [{"_target_": "gymnasium.wrappers.AtariPreprocessing"}],
+        },
+        "trainer": {"seed": 42, "total_frames": 110_000},
+    }
+    assert infer_experiment_config(config, registry) == (
+        "experiment=dreamer/atari100k algorithm=r2dreamer"
+    )
+
+
+def _bbf_run_config(replay_ratio: int) -> dict:
+    return {
+        "algorithm": {
+            "_target_": "src.algorithms.bbf.BBFAlgorithm",
+            "obs_key": "pixels",
+            "replay_ratio": replay_ratio,
+            "replay_capacity": 105_000,
+        },
+        "environment": {"name": "ALE/Jamesbond-v5"},
+        "trainer": {"seed": 1, "total_frames": 100_000},
+    }
+
+
+def test_infer_experiment_config_bbf_rr2(registry):
+    assert infer_experiment_config(_bbf_run_config(2), registry) == (
+        "experiment=bbf/atari100k"
+    )
+
+
+def test_infer_experiment_config_bbf_rr8(registry):
+    """RR2 and RR8 share an identity and a benchmark; only scalars separate them."""
+    assert infer_experiment_config(_bbf_run_config(8), registry) == (
+        "experiment=bbf/atari100k_rr8"
+    )
 
 
 def test_build_table_empty():
@@ -87,7 +171,7 @@ def test_row_to_markdown():
         run_name="dqn_cartpole_2025-01-01",
         run_url="https://wandb.ai/LatentLab/torchrl-hydra-template/runs/abc123",
         environment="CartPole-v1",
-        config="experiment=dqn/cartpole",
+        config="experiment=dqn/gym",
         seed=42,
         frames=500_100,
         eval_return="500.0",
@@ -95,7 +179,7 @@ def test_row_to_markdown():
     )
     md = row_to_markdown(row)
     assert "[dqn_cartpole_2025-01-01](" in md
-    assert "`experiment=dqn/cartpole`" in md
+    assert "`experiment=dqn/gym`" in md
     assert "500,100" in md
 
 

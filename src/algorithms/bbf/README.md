@@ -137,7 +137,7 @@ separate `end-of-life` key.
 - **Replay-ratio convention.** `replay_ratio` = gradient steps per env step (the
 paper's definition). The official gin's `replay_ratio=64` divides by batch size
 (64/32 = 2), i.e. the public config is the RR2 variant; the paper's flagship is
-RR8 (`configs/experiment/bbf/jamesbond_rr8.yaml`).
+RR8 (`configs/experiment/bbf/atari100k_rr8.yaml`).
 - **Weight-decay masking:** AdamW decay is applied to weight matrices only
 (`ndim > 1`), not biases.
 - **The replay buffer is not checkpointed** (resume restores networks, optimizer
@@ -149,13 +149,16 @@ and counters only).
 
 ```shell
 # Official-config BBF at replay ratio 2 (good default; ~1–2h on a modern GPU)
-python src/train.py experiment=bbf/jamesbond
+python src/train.py experiment=bbf/atari100k
+
+# Another Atari-100k game
+python src/train.py experiment=bbf/atari100k environment.task=Breakout
 
 # Paper flagship: replay ratio 8 (A100-class GPU recommended)
-python src/train.py experiment=bbf/jamesbond_rr8
+python src/train.py experiment=bbf/atari100k_rr8
 
 # Re-evaluate a saved checkpoint on the true-score eval env (game over = episode end)
-python src/eval.py experiment=bbf/jamesbond \
+python src/eval.py experiment=bbf/atari100k \
     checkpoint.resume_from=logs/train/runs/<run>/checkpoints/last.pt \
     trainer.num_eval_episodes=100
 ```
@@ -174,12 +177,12 @@ large even upstream.
 Ablation switches (each is one design choice from the table):
 
 ```shell
-python src/train.py experiment=bbf/jamesbond algorithm.spr_weight=0          # no SPR
-python src/train.py experiment=bbf/jamesbond algorithm.reset_interval=0      # no resets
-python src/train.py experiment=bbf/jamesbond algorithm.data_augmentation=false
-python src/train.py experiment=bbf/jamesbond algorithm.width_scale=1         # small net
-python src/train.py experiment=bbf/jamesbond algorithm.prioritized=false     # uniform replay
-python src/train.py experiment=bbf/jamesbond \
+python src/train.py experiment=bbf/atari100k algorithm.spr_weight=0          # no SPR
+python src/train.py experiment=bbf/atari100k algorithm.reset_interval=0      # no resets
+python src/train.py experiment=bbf/atari100k algorithm.data_augmentation=false
+python src/train.py experiment=bbf/atari100k algorithm.width_scale=1         # small net
+python src/train.py experiment=bbf/atari100k algorithm.prioritized=false     # uniform replay
+python src/train.py experiment=bbf/atari100k \
     algorithm.max_update_horizon=3 algorithm.min_gamma=0.997                  # no annealing
 ```
 

@@ -1,7 +1,8 @@
 # BBF — Bigger, Better, Faster (Schwarzer et al. 2023), https://arxiv.org/abs/2305.19452
 # Defaults follow the official release (google-research/bigger_better_faster,
 # configs/BBF.gin) at replay_ratio=2. The paper's flagship result uses
-# replay_ratio=8 + reset_interval=40_000 — see configs/experiment/bbf/*_rr8.yaml.
+# replay_ratio=8 + reset_interval=40_000 — see
+# configs/experiment/bbf/atari100k_rr8.yaml.
 # Same class hand-writes C51 and reuses a torchrl PrioritizedSliceSampler buffer;
 # see src/algorithms/bbf/bbf.py.
 _target_: src.algorithms.bbf.BBFAlgorithm
@@ -50,7 +51,8 @@ no_resets_after: 0         # gradient steps; 0 = never stop resetting
 target_tau: 0.005
 
 # Replay
-replay_capacity: 105_000   # >= total env steps of an Atari-100k run
+# `replay_capacity` is sized to the training budget, so it is set per
+# experiment (>= trainer.total_frames keeps the ring from ever wrapping).
 prioritized: true
 prb_alpha: 0.5             # sampling prop. to (C51 loss)**alpha
 prb_beta: 0.5              # importance-sampling exponent

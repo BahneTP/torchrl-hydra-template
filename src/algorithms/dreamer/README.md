@@ -77,20 +77,21 @@ an EMA target encoder trained on randomly-translated observations.
 | Algorithm config (R2-Dreamer) | [`configs/algorithm/r2dreamer.yaml`](../../../configs/algorithm/r2dreamer.yaml) |
 | Algorithm config (DreamerPro) | [`configs/algorithm/dreamerpro.yaml`](../../../configs/algorithm/dreamerpro.yaml) |
 | Model size presets | [`configs/algorithm/dreamer/`](../../../configs/algorithm/dreamer/) |
-| Atari environment | [`configs/environment/atari_dreamer.yaml`](../../../configs/environment/atari_dreamer.yaml) |
-| Breakout experiment | [`configs/experiment/dreamer/breakout.yaml`](../../../configs/experiment/dreamer/breakout.yaml) |
-| Hero experiment | [`configs/experiment/dreamer/hero.yaml`](../../../configs/experiment/dreamer/hero.yaml) |
-| Qbert experiment | [`configs/experiment/dreamer/qbert.yaml`](../../../configs/experiment/dreamer/qbert.yaml) |
+| Atari environment | [`configs/environment/atari100k.yaml`](../../../configs/environment/atari100k.yaml) |
+| Experiment (DreamerV3 preprocessing lives here) | [`configs/experiment/dreamer/atari100k.yaml`](../../../configs/experiment/dreamer/atari100k.yaml) |
 
 ```shell
 # Standard DreamerV3 (pixel reconstruction)
-python src/train.py experiment=dreamer/hero
+python src/train.py experiment=dreamer/atari100k
+
+# Another game
+python src/train.py experiment=dreamer/atari100k environment.task=Breakout
 
 # R2-Dreamer (Barlow Twins, decoder-free)
-python src/train.py experiment=dreamer/hero algorithm=r2dreamer
+python src/train.py experiment=dreamer/atari100k algorithm=r2dreamer
 
 # DreamerPro (prototypical assignment, decoder-free)
-python src/train.py experiment=dreamer/hero algorithm=dreamerpro
+python src/train.py experiment=dreamer/atari100k algorithm=dreamerpro
 ```
 
 ### Model size presets
@@ -169,9 +170,9 @@ appear only on the `episode/score` curve, for debugging and run-to-run compariso
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [dreamer_hero_atari100k_200m_2026-07-09_10-35-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/8m6v58pk) | ALE/Hero-v5 | `experiment=dreamer/hero` | 42 | 110,000 | 10,253.3 | — |
-| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/51h2g461) | ALE/Hero-v5 | `experiment=dreamer/hero` | 45 | 110,000 | 12,391.2 | — |
-| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/p9fwwjdd) | ALE/Hero-v5 | `experiment=dreamer/hero` | 44 | 110,000 | 6,331.2 | — |
-| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/udxi7rsc) | ALE/Hero-v5 | `experiment=dreamer/hero` | 43 | 110,000 | 6,920.5 | — |
-| [dreamerpro_hero_atari100k_200m_2026-07-09_11-16-03](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/7ydjbg18) | ALE/Hero-v5 | `experiment=dreamer/hero` | 44 | 110,000 | 2,983.5 | DreamerPro |
-| [r2dreamer_hero_atari100k_200m_2026-07-08_14-10-27](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/4sz2koi1) | ALE/Hero-v5 | `experiment=dreamer/hero` | 42 | 100,000 | 4,598.8 | R2Dreamer |
+| [dreamer_hero_atari100k_200m_2026-07-09_10-35-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/8m6v58pk) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 42 | 110,000 | 10,253.3 | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/51h2g461) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 45 | 110,000 | 12,391.2 | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/p9fwwjdd) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 44 | 110,000 | 6,331.2 | — |
+| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/udxi7rsc) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 43 | 110,000 | 6,920.5 | — |
+| [dreamerpro_hero_atari100k_200m_2026-07-09_11-16-03](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/7ydjbg18) | ALE/Hero-v5 | `experiment=dreamer/atari100k algorithm=dreamerpro` | 44 | 110,000 | 2,983.5 | DreamerPro |
+| [r2dreamer_hero_atari100k_200m_2026-07-08_14-10-27](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/4sz2koi1) | ALE/Hero-v5 | `experiment=dreamer/atari100k algorithm=r2dreamer` | 42 | 100,000 | 4,598.8 | R2Dreamer |

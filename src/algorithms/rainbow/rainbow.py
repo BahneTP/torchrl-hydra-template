@@ -10,7 +10,7 @@ Each extension is a toggle (``dueling``, ``noisy``, ``double_dqn``,
 code change — set any of them to ``False`` to fall back to vanilla DQN
 behaviour for that axis.
 
-``configs/algorithm/der.yaml`` configures this same class as Data-Efficient
+``configs/experiment/rainbow/atari100k.yaml`` configures this same class as Data-Efficient
 Rainbow (van Hasselt et al. 2019), the Atari-100k preset: longer multi-step,
 more frequent target updates, and the paper's smaller encoder
 (``encoder_type="data_efficient"``).
@@ -44,7 +44,7 @@ from torchrl.objectives import DistributionalDQNLoss, DQNLoss, HardUpdate
 from src.algorithms.dqn.dqn import DQNAlgorithm
 
 # Conv encoder shapes. "dqn" is the standard NatureDQN encoder (Mnih et al.
-# 2015, matches src.networks.NatureDQN); "data_efficient" is the smaller
+# 2015, matches src.components.networks.NatureDQN); "data_efficient" is the smaller
 # 2-layer encoder from Data-Efficient Rainbow (van Hasselt et al. 2019),
 # tuned for the 100k-frame Atari-100k budget.
 _ENCODER_CNN_KWARGS: dict[str, dict] = {
