@@ -65,7 +65,7 @@ with per-sample importance weights $w$; priorities are updated from $L_{\text{RL
 
 ```
 for each env step t (100,000 total):
-    a_t ~ eps-greedy(Q_target)            # eps: 1 -> 0 over first 2k steps   | EGreedyModule
+    a_t ~ eps-greedy(Q_target)            # eps: 1 -> 0 over 2k steps after warm-up | EGreedyModule
     store (s_t, a_t, r_t, cut_t)          # cut = life loss / terminal / reset | _store -> replay_buffer.extend
 
     repeat replay_ratio times:

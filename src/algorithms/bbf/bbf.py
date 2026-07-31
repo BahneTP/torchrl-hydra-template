@@ -327,9 +327,15 @@ class BBFAlgorithm(BaseAlgorithm):
                 "BBF requires a temporally contiguous stream: set trainer.num_envs=1"
             )
         num_frames = batch.numel()
-        self.greedy_module.step(num_frames)
         self._store(batch)
         self._collected_frames += num_frames
+        # Official ``linearly_decaying_epsilon`` holds eps = 1 through the
+        # random warm-up and only then decays it over ``eps_annealing_frames``
+        # (2001) env steps. Annealing during the warm-up (whose actions the
+        # collector randomises anyway) would make the policy greedy the moment
+        # learning starts, skipping ~2k frames of exploration.
+        if self._collected_frames > self.min_replay_history:
+            self.greedy_module.step(num_frames)
 
         metrics = {
             "train/epsilon": float(self.greedy_module.eps),
