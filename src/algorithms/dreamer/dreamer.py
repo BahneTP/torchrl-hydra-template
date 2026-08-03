@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from collections import deque
 from typing import Callable
 from omegaconf import DictConfig, open_dict
 
@@ -98,6 +97,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         device: torch.device | None = None,
         train_ratio: float = 128.0,
         action_repeat: int = 4,
+        world_model_video_log_every: int = 50_000,
         agent_video_log_every: int = 50_000,
         agent_video_max_steps: int = 200,
     ) -> None:
@@ -109,6 +109,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         self.buffer_config = buffer_config
         self.train_ratio = train_ratio
         self.action_repeat = action_repeat
+        self.world_model_video_log_every = world_model_video_log_every
         self.agent_video_log_every = agent_video_log_every
         self.agent_video_max_steps = agent_video_max_steps
         self.batch_length = buffer_config.batch_length
@@ -121,9 +122,10 @@ class DreamerAlgorithm(BaseAlgorithm):
         self._total_updates = 0
         self._last_video_frame = 0
         self._last_agent_video_frame = 0
-        self.video_log_every = 50_000  # log world model video every N frames
         self._metrics_accum: dict[str, list[float]] = {}
-        self._recent_scores: deque = deque(maxlen=10)       # rolling last-10-episode mean
+        # Set in setup(): the world-model video reconstructs an image, so it only
+        # exists when the decoder actually has a CNN head (pixel observations).
+        self._world_model_video_enabled = False
         self._video_axis_declared = False
         self._make_env: Callable[[], EnvBase] | None = None
 
@@ -146,6 +148,15 @@ class DreamerAlgorithm(BaseAlgorithm):
         self._explore_policy = DreamerPolicy(self.model, explore=True).to(self.device)
         self._eval_policy = DreamerPolicy(self.model, explore=False).to(self.device)
 
+        # `decoder` exists whenever loss_scales.recon > 0, on proprio stacks too —
+        # what decides whether a video can be rendered is the decoder having a CNN
+        # head. On DMC Proprio the key regexes select `observation` and match no
+        # image key, so `cnn_shapes` is empty and there is nothing to reconstruct.
+        decoder = getattr(self.model, "decoder", None)
+        self._world_model_video_enabled = bool(
+            decoder is not None and "image" in getattr(decoder, "cnn_shapes", {})
+        )
+
         # 3. Create a Sequence-Aware Replay Buffer
         self.replay_buffer = Buffer(self.buffer_config)
 
@@ -159,18 +170,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         transitions_added = int(td.batch_size[0]) if len(td.batch_size) > 0 else 1
         self._collected_frames += transitions_added * self.action_repeat
 
-        # 3. Track episode completions for the rolling-10 mean only. The trainer
-        # emits one `charts/train_episodic_return` row per completed episode
-        # from the same tensordict keys, so this must not log anything itself.
-        done = td.get(("next", "done"), default=None)
-        if done is not None and done.bool().any():
-            mask = done.bool().squeeze(-1) if done.dim() > 1 else done.bool()
-            scores = td.get(("next", "episode_reward"), default=None)
-            if scores is not None:
-                for idx in mask.nonzero(as_tuple=True)[0]:
-                    self._recent_scores.append(scores[idx].item())
-
-        # 4. The Minimum Viability Constraint
+        # 3. The Minimum Viability Constraint
         min_required_frames = (
             self.batch_length + 1
         ) * self.action_repeat  # At least enough frames to sample
@@ -178,26 +178,24 @@ class DreamerAlgorithm(BaseAlgorithm):
             self._next_update_target = self._collected_frames + self._frames_per_update
             return {}
 
-        # 5. Proportional update count — fires exactly once per step in normal
+        # 4. Proportional update count — fires exactly once per step in normal
         # operation (frames_per_batch=1), but catches up if frames_per_batch > 1.
         update_num = 0
         while self._collected_frames >= self._next_update_target:
             update_num += 1
             self._next_update_target += self._frames_per_update
 
-        # 6. Execute Backpropagation Through Time
+        # 5. Execute Backpropagation Through Time
         for _ in range(update_num):
             data, index, initial = self.replay_buffer.sample()
             (stoch, deter), _metrics = self.model.update(data, initial)
             self.replay_buffer.update(index, stoch, deter)
+            # The model reports `loss/dyn`, `opt/grad_norm`, ...; every algorithm
+            # in the template logs under a single `train/` family, so flatten the
+            # model's own namespaces into it.
             for k, v in _metrics.items():
                 val = v.item() if isinstance(v, torch.Tensor) else float(v)
-                if k.startswith("loss/"):
-                    key = f"losses/{k[5:]}"
-                elif k.startswith("opt/"):
-                    key = k
-                else:
-                    key = f"train/{k}"
+                key = f"train/{k.replace('/', '_')}"
                 self._metrics_accum.setdefault(key, []).append(val)
 
         if update_num > 0:
@@ -213,9 +211,10 @@ class DreamerAlgorithm(BaseAlgorithm):
                 self._video_axis_declared = True
 
             if (
-                hasattr(self.model, "decoder")
+                self._world_model_video_enabled
+                and self.world_model_video_log_every > 0
                 and self._collected_frames - self._last_video_frame
-                >= self.video_log_every
+                >= self.world_model_video_log_every
             ):
                 self._last_video_frame = self._collected_frames
                 if wandb.run is not None:
@@ -225,7 +224,8 @@ class DreamerAlgorithm(BaseAlgorithm):
                     })
 
             if (
-                self._collected_frames - self._last_agent_video_frame
+                self.agent_video_log_every > 0
+                and self._collected_frames - self._last_agent_video_frame
                 >= self.agent_video_log_every
             ):
                 self._last_agent_video_frame = self._collected_frames
@@ -256,9 +256,7 @@ class DreamerAlgorithm(BaseAlgorithm):
         if self._metrics_accum:
             out = {k: sum(v) / len(v) for k, v in self._metrics_accum.items()}
             self._metrics_accum.clear()
-        out["opt/updates"] = self._total_updates
-        if self._recent_scores:
-            out["episode/score_mean_last10ep"] = sum(self._recent_scores) / len(self._recent_scores)
+        out["train/updates"] = self._total_updates
         return out
 
     @torch.no_grad()
@@ -308,12 +306,12 @@ class DreamerAlgorithm(BaseAlgorithm):
         return wandb.Video(video, fps=20, format="mp4")
 
     def get_policy(self) -> TensorDictModule:
-        # Argmax (dist.mode) policy. Not used anywhere in training — collection,
-        # scores and videos all run the sampled explore policy, matching official
-        # DreamerV3 (which has no argmax path at all). The Atari-100k experiment
-        # uses `evaluation: none` (training-stream reporting, no rollouts), so
-        # nothing reaches this by default; if you do enable eval rollouts, set
-        # `evaluation.policy: explore` for protocol-comparable numbers.
+        # Argmax (dist.mode) policy, kept for the template's `policy: eval`
+        # contract but not what DreamerV3 reports: official DreamerV3 has no
+        # argmax path at all, and the argmax action can loop forever in the
+        # deterministic ALE. Both Dreamer experiments therefore set
+        # `evaluation.policy: explore`, which routes eval rollouts through
+        # `get_explore_policy()` below.
         return self._eval_policy
 
     def get_explore_policy(self) -> TensorDictModule:

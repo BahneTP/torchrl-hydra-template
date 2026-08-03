@@ -157,11 +157,43 @@ Three design decisions required custom adaptation due to TorchRL conventions:
 
 ## Experimental results
 
-**Evaluation protocol.** DreamerV3 reports training-stream episode returns, and
-this stack sets `terminal_on_life_loss: false` with no reward clipping, so those
-returns are true game scores — the experiment uses `evaluation: none` (no eval
-rollouts) with `canonical_source: train`, and `charts/episodic_return` carries
-one row per completed training episode.
+**Evaluation protocol.** The Atari-100k experiment uses
+`evaluation: atari100k_native` — the standard Atari-100k protocol (eval every
+10k agent steps on 10 episodes, 100 episodes at the end, `canonical_source:
+eval`) run on a fresh instance of this experiment's *own* env stack, since the
+shared grayscale, frame-stacked `atari100k_eval` cannot serve DreamerV3's 64x64
+RGB `image` observations. That stack sets `terminal_on_life_loss: false` with no
+reward clipping, so its returns are true game scores either way; measuring from
+rollouts is what makes `charts/episodic_return` mean the same thing here as it
+does for BBF and Rainbow.
+
+Both experiments set `evaluation.policy: explore`, so rollouts use the sampled
+actor. Official DreamerV3 has no argmax path at all — it acts from the sampled
+actor everywhere, and that is what its published scores measure. The argmax
+policy remains reachable as `evaluation.policy: eval`, untested and prone to
+looping in the deterministic ALE.
+
+Note for recurrent policies generally: eval rollouts advance with
+`env.step_mdp`, which preserves the RSSM state (`stoch` / `deter` /
+`prev_action`) that `DreamerPolicy` keeps at the tensordict root. Advancing with
+`td["next"]` instead drops it and the policy silently acts from a fresh latent
+at every step — that bug scored 0.0 across 100 Jamesbond episodes against a
+~250 training stream before it was fixed.
+
+**Benchmarks.** The paper reports dm_control on two suites, and both are
+implemented: `experiment=dreamer/atari100k` (pixels, 200M preset) and
+`experiment=dreamer/dmc` (DMC **Proprio** — state observations, 12M preset,
+`encoder/decoder mlp_keys: observation`, `cnn_keys: '$^'`). The proprio stack is
+shared with `ppo/dmc` and `tdmpc2/dmc`, so the three are directly comparable on
+a task. DMC Vision would additionally need `from_pixels` plumbed through
+`_make_dmc_env` and a working MUJOCO_GL renderer.
+
+**Video diagnostics.** `video/world_model` (truth / reconstruction / open-loop
+tile) and `video/agent` (gameplay) are logged on their own `video/frame` axis at
+`algorithm.world_model_video_log_every` / `agent_video_log_every` environment
+frames; `0` disables either. Both are automatically skipped on stacks with no
+image observation — on DMC Proprio the decoder has no CNN head, so there is
+nothing to reconstruct and nothing to record.
 
 Following the official DreamerV3 code (`run.steps: 1.1e5`), the Atari100k
 experiment trains for 110k agent steps — 10 % past the benchmark budget of 100k

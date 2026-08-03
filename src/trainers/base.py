@@ -314,7 +314,14 @@ class BaseTrainer(ABC):
                             td["next", "done"].any().item()
                             or td["next", "terminated"].any().item()
                         )
-                        td = td["next"]
+                        # `td["next"]` would keep only env-written keys and drop
+                        # everything the policy left at the root — which for a
+                        # recurrent policy is its whole state (DreamerPolicy's
+                        # `stoch` / `deter` / `prev_action`), silently resetting
+                        # the RSSM on every step. `env.step_mdp` is what the
+                        # collector uses (`_StepMDP(keep_other=True)`), so
+                        # evaluation now advances exactly like collection.
+                        td = env.step_mdp(td)
                     returns.append(episode_return)
                     lengths.append(float(episode_length))
         finally:

@@ -88,9 +88,12 @@ class StepTrainer(BaseTrainer):
 
             if self._should_log(log_every, batch_frames):
                 # Algorithms may window-average their own losses; that
-                # supplements the trainer's episode accounting, never replaces it.
+                # supplements the last `step()` return and the trainer's episode
+                # accounting, never replaces either.
+                row = dict(metrics)
                 pop = getattr(self.algorithm, "pop_train_metrics", None)
-                row = pop() if pop is not None else dict(metrics)
+                if pop is not None:
+                    row.update(pop())
                 if pending_episode_rewards:
                     row["train/episode_reward"] = (
                         sum(pending_episode_rewards) / len(pending_episode_rewards)

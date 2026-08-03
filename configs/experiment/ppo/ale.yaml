@@ -16,7 +16,20 @@ environment:
   task: Jamesbond
   gym_kwargs:
     repeat_action_probability: 0.0  # Atari-100k protocol: no sticky actions
+# Atari-100k episode counts on top of the `ale` protocol: this experiment runs
+# the 100k budget, so it is compared against bbf/atari100k and
+# dreamer/atari100k and takes the same 10-point curve plus the official
+# 100-episode final measurement. `configs/evaluation/ale.yaml` keeps its lighter
+# defaults for the full-length runs (dqn/ale), where 10k-step evaluation would
+# mean a thousand eval points.
+#
+# `canonical_source: train` stays: the `ale` stack runs training episodes to
+# true game over (EndOfLifeTransform does not set `done`) and places
+# SignTransform after RewardSum, so the training return is already an
+# unclipped score.
 evaluation:
+  every_n_steps: 10_000
+  final_num_episodes: 100
   eval_environment:
     gym_kwargs:
       repeat_action_probability: 0.0

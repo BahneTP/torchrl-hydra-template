@@ -69,6 +69,15 @@ def _evaluate(cfg: DictConfig) -> dict[str, float]:
     seed_everything(int(cfg.trainer.seed))
     _configure_eval_logging(cfg)
 
+    if not bool(cfg.get("train", False)) and cfg.evaluation.get("summary_max_step"):
+        # `summary_max_step` trims *training-stream* episodes completed past a
+        # benchmark budget. Without training, every canonical episode is logged
+        # at the checkpoint's step — for a run that trains past the budget on
+        # purpose (dreamer/atari100k: 110k steps, cutoff 100k) that is the whole
+        # set, so summary() would filter all of them out and silently write no
+        # `eval/final_return_*` at all.
+        cfg.evaluation.summary_max_step = None
+
     trainer = build_trainer(cfg)
 
     trainer.setup()

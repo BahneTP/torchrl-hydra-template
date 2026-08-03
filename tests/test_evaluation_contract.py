@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import torch
 
 from tests.conftest import CONFIGS_DIR, load_experiment_cfg
 
@@ -172,6 +173,36 @@ def test_canonical_source_eval_mirrors_eval_rollouts():
             assert "charts/episodic_return" not in row
         if "charts/eval_episodic_return" in row:
             assert row["charts/episodic_return"] == row["charts/eval_episodic_return"]
+
+
+def test_evaluation_preserves_recurrent_policy_state():
+    """Eval rollouts must carry the policy's own root keys across steps.
+
+    A recurrent policy (DreamerPolicy's RSSM: `stoch` / `deter` / `prev_action`)
+    keeps its state at the root of the tensordict, exactly where the collector
+    leaves it. Advancing the rollout with ``td["next"]`` keeps only env-written
+    keys, which silently resets that state on every step — the policy still runs,
+    it just acts from a fresh latent and scores near zero.
+    """
+    trainer, _ = _tiny_dqn_trainer([])
+
+    original = trainer.algorithm.get_policy()
+    seen: list[int] = []
+
+    def recurrent_policy(td):
+        # Read the state this policy left behind on the previous step.
+        carried = int(td["policy_state"].item()) if "policy_state" in td.keys() else 0
+        seen.append(carried)
+        td = original(td)
+        td.set("policy_state", torch.full((1,), carried + 1, dtype=torch.long))
+        return td
+
+    trainer.algorithm.get_policy = lambda: recurrent_policy
+    trainer.evaluate(num_episodes=1)
+
+    assert len(seen) > 1, "evaluation did not step the policy"
+    # 0 on reset, then one increment per step: a dropped state would be all 0s.
+    assert seen == list(range(len(seen))), seen
 
 
 def test_evaluation_restores_module_training_flags():

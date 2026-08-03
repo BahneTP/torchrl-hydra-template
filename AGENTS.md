@@ -379,9 +379,15 @@ record** — add new keys there first, then override in the benchmark files:
 | `canonical_source` | `train` or `eval`; which stream feeds `charts/episodic_return` |
 | `seed` | eval env seed base; the *n*th eval point seeds with `seed + n` |
 | `summary_window` | episodes averaged for `eval/final_return_mean` (default 100) |
-| `summary_max_step` | ignore canonical episodes past this agent step (`null` = whole run) |
+| `summary_max_step` | ignore canonical episodes past this agent step (`null` = whole run); `src/eval.py` forces it to `null` when not training, since a standalone eval logs every episode at the checkpoint's step and the cutoff would discard all of them |
 
-Shipped: `none`, `gym`, `ale`, `atari100k`, `dmc`.
+Shipped: `none`, `gym`, `ale`, `atari100k`, `atari100k_native`, `dmc`.
+
+`atari100k_native` is `atari100k` with `eval_environment` left `null`, so the
+eval env is a fresh instance of the *experiment's own* training stack. It exists
+for DreamerV3, whose 64x64 RGB `image` stack cannot be served by the shared
+grayscale, frame-stacked `atari100k_eval` — and does not need to be, since that
+stack is already eval-clean (`terminal_on_life_loss: false`, no reward clipping).
 
 `canonical_source` is not cosmetic. On `atari100k`, `EpisodicLifeEnv` sets
 `terminated=True` at life loss, so `RewardSum` resets and a training episode is
@@ -394,6 +400,16 @@ unclipped game scores and `canonical_source: train` is correct.
 selects the policy from `evaluation.policy`, and snapshots/restores every
 algorithm module's `.training` flag — Rainbow's `get_policy()` toggles noisy
 layers, which periodic evaluation would otherwise leak into training.
+
+It advances the rollout with **`env.step_mdp(td)`**, never `td["next"]`.
+`td["next"]` keeps only env-written keys and discards whatever the policy left
+at the root — for a recurrent policy that is its entire state (DreamerPolicy's
+`stoch` / `deter` / `prev_action`), so it would silently re-initialise every
+step and score near zero while looking like it ran fine. `step_mdp` is
+`_StepMDP(keep_other=True)`, the same transition the collector uses, so
+evaluation and collection advance identically.
+`tests/test_evaluation_contract.py::test_evaluation_preserves_recurrent_policy_state`
+guards this.
 
 `src/train.py` and `src/eval.py` both go through
 `src/utils/instantiate.py::build_trainer`, which reads the eval env from
@@ -413,13 +429,24 @@ No algorithm may define its own axis.
 | `charts/eval_episodic_return` / `_length` | one per eval episode |
 | `eval/return_{mean,std,min,max}`, `eval/episodes` | one per eval point |
 | `eval/final_return_mean` / `_std` | run summary (logger summary, not history) |
-| `train/*`, `time/*`, `losses/*`, `opt/*` | log boundaries |
+| `train/*`, `time/*` | log boundaries |
 
 Emit metrics only through `BaseTrainer.log_metrics(metrics, step)` and
 `log_episodes(returns, lengths, step, source)` — they inject `global_step` and
 `frames`. The callback protocol separates `on_metrics` (a row of metrics; fires
 per episode, loggers want it) from `on_step_end` (the loop crossed a boundary;
 progress bar and checkpointer want it).
+
+**One `train/` family per algorithm.** Everything an algorithm returns from
+`step()` (or from the optional `pop_train_metrics()` window-mean hook, which
+`StepTrainer` *merges* into the same row) is prefixed `train/`. Dreamer's model
+reports `loss/…` and `opt/…` internally; those are flattened to
+`train/loss_…` / `train/opt_…` on the way out. No algorithm keeps its own
+episode-return statistic either — `train/episode_reward` and the per-episode
+`charts/*` rows come from the trainer, from the same tensordict keys, and a
+private rolling mean next to them is a second definition of the same number.
+The one accepted exception is Dreamer's `video/*`, which keeps its own
+`video/frame` axis (see below).
 
 Compatibility rules, enforced by `tests/test_evaluation_contract.py`:
 
@@ -538,7 +565,8 @@ configs/
   evaluation/none.yaml      — base schema; training stream only, no eval rollouts
   evaluation/gym.yaml       — final eval only, canonical_source: train
   evaluation/ale.yaml       — ale_eval stack, canonical_source: train
-  evaluation/atari100k.yaml — atari100k_eval, 100 final episodes, canonical_source: eval
+  evaluation/atari100k.yaml — atari100k_eval, every 10k + 100 final episodes, canonical_source: eval
+  evaluation/atari100k_native.yaml — same protocol on the experiment's own stack (DreamerV3)
   evaluation/dmc.yaml       — periodic every 10k agent steps (TD-MPC2 upstream)
   experiment/dqn/{gym,ale}.yaml — DQN on CartPole / Atari Pong (40M frames)
   experiment/ddpg/gym.yaml      — DDPG HalfCheetah (1M frames)
@@ -628,6 +656,11 @@ python scripts/update_algo_results.py              # refresh algo README benchma
 ./scripts/run_benchmarks.sh --dry-run              # print the 18 commands
 ./scripts/run_benchmarks.sh --smoke                # tiny budgets; validates every spec
 ./scripts/run_benchmarks.sh --gpus 2,3             # the real sweep
+
+# Comparison figures + rliable, via openrlbenchmark's own rlops CLI.
+# First run builds an isolated .venv-openrlbenchmark; output in logs/analysis/.
+./scripts/make_figures.sh                          # every group, tag `template`
+./scripts/make_figures.sh --group atari100k        # one comparison group
 pytest tests/test_smoke.py -v
 
 # Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):

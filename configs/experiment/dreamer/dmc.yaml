@@ -49,6 +49,16 @@ algorithm:
       mlp_keys: 'observation'
       cnn_keys: '$^'
 
+# Same protocol as tdmpc2/dmc and ppo/dmc (evaluation=dmc: every 10k agent
+# steps, 10 episodes, eval canonical), except for the policy: official
+# DreamerV3 has no argmax path and reports the sampled actor, so eval rollouts
+# use `get_explore_policy()`.
+#
+# With `cnn_keys: '$^'` above there is no image decoder head, so the world-model
+# video is skipped here — see `algorithm.world_model_video_log_every`.
+evaluation:
+  policy: explore
+
 trainer:
   total_frames: 1_000_000   # agent steps, matching ppo/dmc and tdmpc2/dmc
   seed: 1

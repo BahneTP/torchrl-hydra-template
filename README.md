@@ -308,7 +308,7 @@ defaults:
   - override /environment@eval_environment: atari100k_eval
   - _self_
 
-every_n_steps: 0         # periodic eval cadence in agent steps; 0 = final only
+every_n_steps: 10_000    # periodic eval cadence in agent steps; 0 = final only
 num_episodes: 10         # episodes per periodic eval point
 final_num_episodes: 100  # official Atari-100k protocol
 policy: eval             # eval | explore
@@ -316,8 +316,23 @@ canonical_source: eval   # which stream feeds charts/episodic_return
 ```
 
 Shipped protocols: `none` (training stream only), `gym`, `ale`, `atari100k`,
-`dmc`. Any scalar is overridable — turn a final-only protocol into a learning
-curve with `evaluation.every_n_steps=10_000`.
+`atari100k_native`, `dmc`. Any scalar is overridable — drop back to a single
+final number with `evaluation.every_n_steps=0`.
+
+Algorithms compared on the same benchmark select the same protocol, so their
+curves are read off one axis: the three Atari-100k experiments all evaluate
+every 10k steps and finish with the official 100 episodes, and the three DMC
+experiments all evaluate every 10k steps on the deterministic policy.
+`atari100k_native` is `atari100k` with `eval_environment` left `null` — the eval
+env is a fresh instance of the experiment's own training stack. DreamerV3 uses
+it because its 64x64 RGB stack cannot be served by the shared grayscale,
+frame-stacked `atari100k_eval`, and does not need to be: that stack has no
+episodic-life truncation and no reward clipping, so it already measures true
+game scores.
+
+Recurrent policies are safe to evaluate: the rollout advances with
+`env.step_mdp`, the same transition the collector uses, so policy state carried
+at the root of the tensordict (DreamerV3's RSSM) survives across steps.
 
 The `_eval` env configs interpolate `name: ALE/${environment.task}-v5` — an
 *absolute* reference, so composed under the `eval_environment` package they read
@@ -357,6 +372,7 @@ Tianshou and friends without post-processing.
 | `charts/eval_episodic_return` / `_length` | always eval rollouts |
 | `eval/return_mean`, `_std`, `_min`, `_max`, `eval/episodes` | one row per eval point |
 | `eval/final_return_mean` / `_std` | run summary: last `summary_window` canonical episodes |
+| `train/*` | every algorithm-side metric: losses, exploration, schedules, update counts |
 | `global_step` | **agent steps** (post frame-skip); on every row |
 | `frames` | `global_step * environment.action_repeat`; on every row |
 
@@ -375,9 +391,14 @@ python -m openrlbenchmark.rlops --scan-history \
   --env-ids Pong-v5 --output-filename compare
 ```
 
-Two caveats worth knowing: openrlbenchmark skips runs that are not `finished`,
-and `--rliable` truncates every cell to the smallest seed count in the
-comparison — keep seed counts uniform across games.
+Three caveats worth knowing: openrlbenchmark skips runs that are not `finished`;
+`--rliable` truncates every cell to the smallest seed count in the comparison,
+so keep seed counts uniform across games; and a run that *crashed* still reports
+as `finished`, because the trainer closes its logger in a `finally`. Check the
+per-experiment runtimes `rlops` prints — a truncated run shows up there long
+before it shows up in the curve.
+
+`scripts/make_figures.sh` wraps this for the committed comparison groups.
 
 #### Multi-GPU benchmark sweeps
 
@@ -398,12 +419,31 @@ leave a GPU idle for hours. Each finished run drops a marker in
 `logs/benchmarks/done/`, so the sweep is interruptible and resumable. Runs are
 tagged `template` for `scripts/update_algo_results.py`.
 
-The job table applies two protocol harmonisations on top of each experiment's
-committed `evaluation` config, so runs in a comparison group report the same
-thing: all three Jamesbond runs take a 100-episode final evaluation (BBF's
-config already did), and all three cheetah-run runs evaluate every 10k agent
-steps (`ppo/dmc` commits `evaluation: none` to keep its 1M-frame run cheap).
-Both are visible as overrides in the table — edit them there.
+The job table carries **no** protocol overrides: every experiment's committed
+`evaluation` config already reports the same thing as the others in its
+comparison group. Anything a job needs beyond that belongs in its experiment
+file, not in the table.
+
+#### Figures
+
+`scripts/make_figures.sh` wraps openrlbenchmark's own `rlops` CLI — comparison
+curves plus rliable aggregates, performance profiles and sample-efficiency
+plots, with no plotting code of ours. It needs no adapters because the logging
+contract above is what `rlops` expects; the first run builds an isolated
+`.venv-openrlbenchmark` (openrlbenchmark's pins are kept away from the training
+env).
+
+```shell
+./scripts/make_figures.sh                     # every group, W&B tag `template`
+./scripts/make_figures.sh --group atari100k   # one comparison group
+./scripts/make_figures.sh --tag eval-recheck  # a different tag
+```
+
+Read the script's header before trusting a plot. `rlops` averages the last 100
+logged points of `charts/episodic_return` whatever stream produced them, so runs
+recorded under different evaluation protocols are silently incomparable — and a
+run whose canonical episodes all sit at one step renders as a flat line, because
+the single point is back-filled across the axis.
 
 ### Trainer
 
@@ -476,7 +516,8 @@ configs/
 │   ├── none.yaml           <- base schema; training stream only, no rollouts
 │   ├── gym.yaml            <- final eval only, canonical_source: train
 │   ├── ale.yaml            <- ale_eval stack, canonical_source: train
-│   ├── atari100k.yaml      <- 100 final episodes, canonical_source: eval
+│   ├── atari100k.yaml      <- every 10k + 100 final episodes, canonical_source: eval
+│   ├── atari100k_native.yaml <- same protocol on the experiment's own stack
 │   └── dmc.yaml            <- periodic every 10k (TD-MPC2 upstream cadence)
 ├── logger/
 │   ├── wandb.yaml

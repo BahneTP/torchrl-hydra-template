@@ -55,7 +55,6 @@ gradient steps, so it stays 40_000 for both RR2 and RR8.
 from __future__ import annotations
 
 import math
-from collections import deque
 from typing import Callable
 
 import torch
@@ -182,7 +181,6 @@ class BBFAlgorithm(BaseAlgorithm):
         self._grad_steps = 0
         self._steps_since_reset = 0
         self._num_resets = 0
-        self._episode_returns: deque[float] = deque(maxlen=10)
 
     # ------------------------------------------------------------------
     # Setup
@@ -343,10 +341,6 @@ class BBFAlgorithm(BaseAlgorithm):
             "train/gamma": self._current_gamma(),
             "train/num_resets": float(self._num_resets),
         }
-        if self._episode_returns:
-            metrics["train/episode_reward_mean10"] = sum(self._episode_returns) / len(
-                self._episode_returns
-            )
         if self._collected_frames < self.min_replay_history:
             return metrics
 
@@ -407,12 +401,6 @@ class BBFAlgorithm(BaseAlgorithm):
             batch_size=[n],
         )
         self.replay_buffer.extend(transitions)
-
-        if done.any():
-            episode_rewards = flat.get(("next", "episode_reward"), default=None)
-            if episode_rewards is not None:
-                for r in episode_rewards.reshape(-1)[done].tolist():
-                    self._episode_returns.append(float(r))
 
     def _sample(self) -> dict[str, torch.Tensor]:
         """Sample ``batch_size`` contiguous windows and unpack to (B, ...)."""

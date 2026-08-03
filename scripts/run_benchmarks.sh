@@ -48,33 +48,35 @@ done
 #
 # Format: NAME | HYDRA OVERRIDES | SMOKE-ONLY OVERRIDES
 #
-# Two deliberate protocol harmonisations on top of each experiment's committed
-# `evaluation` config, so the runs in each comparison group report the same
-# thing (see configs/evaluation/ for what the defaults are):
+# No protocol overrides here: every experiment's committed `evaluation` config
+# already reports the same thing as the others in its comparison group — the
+# three Atari-100k runs evaluate every 10k steps and finish with 100 episodes,
+# the three cheetah-run runs evaluate every 10k steps with the deterministic
+# policy. See configs/evaluation/ and the `evaluation:` block of each
+# experiment. Anything a job needs beyond that belongs in its experiment file,
+# not in this table.
 #
-#   * the three Atari-100k Jamesbond runs all take a 100-episode final
-#     evaluation. BBF's config already does; PPO and Dreamer are raised to
-#     match, so `eval/return_mean` is a like-for-like headline number.
-#   * the three cheetah-run runs all evaluate every 10k agent steps.
-#     tdmpc2/dmc and dreamer/dmc already do (evaluation=dmc); ppo/dmc commits
-#     `evaluation: none` to keep its 1M-frame run cheap, and is raised here so
-#     the comparison has three curves rather than two.
-#
-# Note `ppo/dmc` also needs accelerator=gpu — it is the one experiment that
+# Note `ppo/dmc` still needs accelerator=gpu — it is the one experiment that
 # does not select `override /trainer: gpu`.
 #
+# The Dreamer smoke overrides pull `world_model_video_log_every` down to 8
+# frames on purpose: at the committed 50k cadence a smoke run never reaches the
+# video path, which is exactly how a decoder-key crash on DMC Proprio shipped
+# past a green `--smoke`. The agent video is disabled there instead — it rolls
+# out hundreds of env steps and adds nothing a smoke run needs.
+#
 JOBS=(
-  "ppo_atari100k_jamesbond|experiment=ppo/ale environment.task=Jamesbond evaluation.final_num_episodes=100|trainer.total_frames=256 trainer.num_envs=1 trainer.log_every_n_steps=64 algorithm.frames_per_batch=64 algorithm.mini_batch_size=32 algorithm.num_epochs=2 algorithm.anneal_frames=256"
+  "ppo_atari100k_jamesbond|experiment=ppo/ale environment.task=Jamesbond|trainer.total_frames=256 trainer.num_envs=1 trainer.log_every_n_steps=64 algorithm.frames_per_batch=64 algorithm.mini_batch_size=32 algorithm.num_epochs=2 algorithm.anneal_frames=256"
 
   "bbf_atari100k_jamesbond|experiment=bbf/atari100k environment.task=Jamesbond|trainer.total_frames=40 trainer.log_every_n_steps=8 algorithm.min_replay_history=8 algorithm.batch_size=2 algorithm.replay_ratio=1 algorithm.replay_capacity=200 algorithm.max_update_horizon=3 algorithm.min_update_horizon=1 algorithm.spr_depth=2 algorithm.width_scale=1 algorithm.hidden_dim=64 algorithm.reset_interval=12 algorithm.eps_annealing_frames=8"
 
-  "dreamer_atari100k_jamesbond|experiment=dreamer/atari100k environment.task=Jamesbond evaluation.final_num_episodes=100|trainer.total_frames=20 trainer.log_every_n_steps=10 model.deter=64 model.hidden=64 model.discrete=8 model.depth=8 model.units=64 algorithm.buffer_config.batch_size=16 algorithm.buffer_config.batch_length=8 algorithm.buffer_config.max_size=500 algorithm.dreamer_config.compile=false algorithm.dreamer_config.imag_horizon=3"
+  "dreamer_atari100k_jamesbond|experiment=dreamer/atari100k environment.task=Jamesbond|trainer.total_frames=20 trainer.log_every_n_steps=10 algorithm.world_model_video_log_every=8 algorithm.agent_video_log_every=0 model.deter=64 model.hidden=64 model.discrete=8 model.depth=8 model.units=64 algorithm.buffer_config.batch_size=16 algorithm.buffer_config.batch_length=8 algorithm.buffer_config.max_size=500 algorithm.dreamer_config.compile=false algorithm.dreamer_config.imag_horizon=3"
 
-  "ppo_dmc_cheetah_run|experiment=ppo/dmc environment.task=cheetah-run trainer.accelerator=gpu evaluation=dmc evaluation.canonical_source=train|trainer.total_frames=256 trainer.log_every_n_steps=64 algorithm.frames_per_batch=64 algorithm.mini_batch_size=32 algorithm.num_epochs=2 algorithm.anneal_frames=256 evaluation.every_n_steps=0"
+  "ppo_dmc_cheetah_run|experiment=ppo/dmc environment.task=cheetah-run trainer.accelerator=gpu|trainer.total_frames=256 trainer.log_every_n_steps=64 algorithm.frames_per_batch=64 algorithm.mini_batch_size=32 algorithm.num_epochs=2 algorithm.anneal_frames=256 evaluation.every_n_steps=0"
 
   "tdmpc2_dmc_cheetah_run|experiment=tdmpc2/dmc environment.task=cheetah-run|trainer.total_frames=120 trainer.log_every_n_steps=40 algorithm.compile=false algorithm.frames_per_batch=40 algorithm.init_random_frames=40 algorithm.pretrain_updates=1 algorithm.num_updates=1 algorithm.batch_size=4 algorithm.buffer_size=1000 algorithm.latent_dim=64 algorithm.enc_dim=32 algorithm.mlp_dim=32 algorithm.num_q=2 algorithm.num_samples=32 algorithm.num_elites=4 algorithm.num_pi_trajs=2 algorithm.iterations=1 evaluation.every_n_steps=0 evaluation.final_num_episodes=1 checkpoint.enabled=false"
 
-  "dreamer_dmc_cheetah_run|experiment=dreamer/dmc environment.task=cheetah-run|trainer.total_frames=40 trainer.log_every_n_steps=10 model.deter=64 model.hidden=64 model.discrete=8 model.units=64 algorithm.buffer_config.batch_size=16 algorithm.buffer_config.batch_length=8 algorithm.buffer_config.max_size=500 algorithm.dreamer_config.compile=false algorithm.dreamer_config.imag_horizon=3 evaluation.every_n_steps=0 evaluation.final_num_episodes=1"
+  "dreamer_dmc_cheetah_run|experiment=dreamer/dmc environment.task=cheetah-run|trainer.total_frames=40 trainer.log_every_n_steps=10 algorithm.world_model_video_log_every=8 algorithm.agent_video_log_every=0 model.deter=64 model.hidden=64 model.discrete=8 model.units=64 algorithm.buffer_config.batch_size=16 algorithm.buffer_config.batch_length=8 algorithm.buffer_config.max_size=500 algorithm.dreamer_config.compile=false algorithm.dreamer_config.imag_horizon=3 evaluation.every_n_steps=0 evaluation.final_num_episodes=1"
 )
 
 # Applied to every job in --smoke. Keeps a validation pass to seconds and,

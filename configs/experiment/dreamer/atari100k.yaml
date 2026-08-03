@@ -6,7 +6,7 @@ defaults:
   - /algorithm/dreamer: 200m
   - override /algorithm: dreamer
   - override /environment: atari100k
-  - override /evaluation: none
+  - override /evaluation: atari100k_native
   - override /trainer: gpu
   - override /logger: wandb
   - _self_
@@ -50,13 +50,20 @@ environment:
 algorithm:
   action_repeat: 4        # AtariPreprocessing(frame_skip=4) above
 
-# DreamerV3 reports training-stream episode returns, and this stack sets
-# `terminal_on_life_loss: false` with no reward clipping, so those returns are
-# true game scores — separate eval rollouts would add nothing.
+# This stack sets `terminal_on_life_loss: false` with no reward clipping, so the
+# *training* stream is already true game scores — but BBF and Rainbow report
+# evaluation rollouts, so Dreamer does too (`canonical_source: eval`, inherited)
+# and the three are read off the same axis. `atari100k_native` keeps those
+# rollouts on this experiment's own 64x64 RGB stack.
+#
+# `policy: explore` because official DreamerV3 has no argmax path: it acts from
+# the sampled actor everywhere, and that is what its published scores measure.
+#
 # `summary_max_step` reproduces upstream's reporting rule: training runs 10%
 # past the Atari-100k budget, but the headline number is cut off at 100k agent
 # steps (= 400k game frames).
 evaluation:
+  policy: explore
   summary_max_step: 100_000
 
 run_name: dreamer_${environment.task}_atari100k_${model_size}_${now:%Y-%m-%d_%H-%M-%S}
