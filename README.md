@@ -411,7 +411,14 @@ cheetah-run — at three seeds each, load-balanced across GPUs.
 ./scripts/run_benchmarks.sh --smoke             # tiny budgets; validates every spec
 ./scripts/run_benchmarks.sh --gpus 2,3          # the real sweep
 ./scripts/run_benchmarks.sh --only bbf,tdmpc2   # subset by job name
+./scripts/run_benchmarks.sh --tag template-v2   # own W&B tag for this sweep
 ```
+
+Use `--tag` whenever the evaluation protocol has changed since the last sweep.
+W&B tags are the only thing separating one sweep from the next — old runs keep
+their tag forever and still report as `finished`, and `rlops` cannot tell two
+protocols apart. A tagged sweep plus `make_figures.sh --tag <name>` compares
+only what belongs together.
 
 Workers pull from a shared queue instead of taking a fixed slice, because the
 jobs differ in cost by more than an order of magnitude — a static split would

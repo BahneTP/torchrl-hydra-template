@@ -15,6 +15,7 @@
 #   ./scripts/run_benchmarks.sh                     # the real sweep on GPUs 2,3
 #   ./scripts/run_benchmarks.sh --only bbf,tdmpc2   # subset by job name
 #   ./scripts/run_benchmarks.sh --gpus 0,1,2,3      # more workers
+#   ./scripts/run_benchmarks.sh --tag template-v2   # own W&B tag for this sweep
 #
 set -uo pipefail
 # Overrides are deliberately word-split into argv, but they contain bracket
@@ -30,6 +31,7 @@ SEEDS="1,2,3"
 ONLY=""
 DRY_RUN=0
 SMOKE=0
+TAG=""
 BENCH_DIR="${BENCH_DIR:-logs/benchmarks}"
 
 while [[ $# -gt 0 ]]; do
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --gpus)     GPUS="$2"; shift 2 ;;
     --seeds)    SEEDS="$2"; shift 2 ;;
     --only)     ONLY="$2"; shift 2 ;;
+    --tag)      TAG="$2"; shift 2 ;;
     --dry-run)  DRY_RUN=1; shift ;;
     --smoke)    SMOKE=1; BENCH_DIR="${BENCH_DIR}/smoke"; shift ;;
     -h|--help)  sed -n '2,20p' "$0"; exit 0 ;;
@@ -88,10 +91,14 @@ JOBS=(
 SMOKE_COMMON="evaluation.every_n_steps=0 evaluation.final_num_episodes=2 checkpoint.enabled=false"
 
 if [[ $SMOKE -eq 1 ]]; then
-  RUN_TAG="smoke"
+  RUN_TAG="${TAG:-smoke}"
   EXTRA_ARGS="logger.0.mode=offline"
 else
-  RUN_TAG="template"
+  # `--tag` exists because W&B tags are the only thing separating one sweep from
+  # the next: runs from an older evaluation protocol stay `finished` and keep
+  # their tag forever, and rlops cannot tell two protocols apart. Give a sweep
+  # its own tag and `scripts/make_figures.sh --tag <name>` compares only it.
+  RUN_TAG="${TAG:-template}"
   EXTRA_ARGS=""
 fi
 
