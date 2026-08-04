@@ -15,10 +15,10 @@ defaults:
 run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${now:%Y-%m-%d_%H-%M-%S}
 
 checkpoint:
-  enabled: false
+  enabled: true
   save_dir: ${paths.output_dir}/checkpoints
-  save_every_n_steps: 50_000
-  save_last: false
+  save_every_n_steps: 0   # periodic saves every N env steps (0 disables)
+  save_last: true         # always write checkpoints/last.pt at train end
   resume_from: null       # path to .pt file to resume from
 
 hydra:

@@ -134,6 +134,32 @@ def test_infer_experiment_config_dreamer_variant(registry):
     )
 
 
+def _bbf_run_config(replay_ratio: int) -> dict:
+    return {
+        "algorithm": {
+            "_target_": "src.algorithms.bbf.BBFAlgorithm",
+            "obs_key": "pixels",
+            "replay_ratio": replay_ratio,
+            "replay_capacity": 105_000,
+        },
+        "environment": {"name": "ALE/Jamesbond-v5"},
+        "trainer": {"seed": 1, "total_frames": 100_000},
+    }
+
+
+def test_infer_experiment_config_bbf_rr2(registry):
+    assert infer_experiment_config(_bbf_run_config(2), registry) == (
+        "experiment=bbf/atari100k"
+    )
+
+
+def test_infer_experiment_config_bbf_rr8(registry):
+    """RR2 and RR8 share an identity and a benchmark; only scalars separate them."""
+    assert infer_experiment_config(_bbf_run_config(8), registry) == (
+        "experiment=bbf/atari100k_rr8"
+    )
+
+
 def test_build_table_empty():
     table = build_table([])
     assert "No finished runs tagged ``template`` yet" in table

@@ -50,6 +50,7 @@ Three derived rules:
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`        |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
+| BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
 
 Every experiment names a *benchmark*, not a task. Switch task with one override:
 `experiment=dqn/ale environment.task=Breakout`,
@@ -72,6 +73,7 @@ results. Experimental metrics are tracked on
 | TD-MPC2 | [`src/algorithms/tdmpc2/README.md`](src/algorithms/tdmpc2/README.md) |
 | DreamerV3 | [`src/algorithms/dreamer/README.md`](src/algorithms/dreamer/README.md) |
 | Rainbow / DER | [`src/algorithms/rainbow/README.md`](src/algorithms/rainbow/README.md) |
+| BBF | [`src/algorithms/bbf/README.md`](src/algorithms/bbf/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:
@@ -125,6 +127,8 @@ python src/train.py experiment=dqn/ale
 ```
 train.py  ->  Trainer(algorithm, environment)
                 ├── owns: device, env lifecycle, Collector, eval, callbacks, checkpoints
+                │         (defaults: checkpoints/last.pt at train end, then a final
+                │          eval of trainer.final_eval_episodes episodes, logged as eval/*)
                 └── calls: algorithm.step(batch) -> metrics
 
 Algorithm    ->  owns: network, replay buffer, loss, optimiser, exploration,

@@ -18,6 +18,11 @@ BASE_OVERRIDES = [
     "logger=[]",
     "trainer.accelerator=cpu",
     "trainer.devices=[0]",
+    "trainer.final_eval_episodes=0",  # keep smoke runs to seconds
+    # The compose API can't resolve ${hydra:runtime.output_dir}; checkpointing
+    # is on by default (save_last), so point it at a literal path to keep the
+    # default checkpoint path exercised.
+    "checkpoint.save_dir=/tmp/hydra_smoke_tests/checkpoints",
     "hydra.run.dir=/tmp/hydra_smoke_tests",
 ]
 
@@ -222,6 +227,42 @@ def test_smoke_der_jamesbond():
     """DER on ALE/Jamesbond-v5 (Atari-100k): C51 + noisy nets + prioritized replay."""
     pytest.importorskip("ale_py")  # ALE is an optional system dep
     cfg = load_experiment_cfg("rainbow/atari100k", _der_overrides())
+    from src.train import _train
+
+    metrics = _train(cfg)
+    assert isinstance(metrics, dict)
+    assert len(metrics) > 0
+
+
+def _bbf_overrides() -> list[str]:
+    # 40 frames in 1-frame batches: 8 warm-up frames then 32 update steps
+    # (replay_ratio=1). Tiny Impala (width_scale=1, hidden_dim=64), short
+    # window (max_update_horizon=3, spr_depth=2 -> slice_len=4) and a 200-step
+    # ring keep it to seconds on CPU. reset_interval=12 exercises the
+    # shrink-and-perturb path (~2 resets) without dominating the runtime.
+    return [
+        *BASE_OVERRIDES,
+        "trainer.total_frames=40",
+        "trainer.log_every_n_steps=8",
+        "algorithm.min_replay_history=8",
+        "algorithm.batch_size=2",
+        "algorithm.replay_ratio=1",
+        "algorithm.replay_capacity=200",
+        "algorithm.max_update_horizon=3",
+        "algorithm.min_update_horizon=1",
+        "algorithm.spr_depth=2",
+        "algorithm.width_scale=1",
+        "algorithm.hidden_dim=64",
+        "algorithm.reset_interval=12",
+        "algorithm.eps_annealing_frames=8",
+    ]
+
+
+def test_smoke_bbf_atari100k():
+    """BBF on ALE/Jamesbond-v5 (Atari-100k): hand-written C51 + SPR + resets +
+    annealed n-step/discount over a torchrl PrioritizedSliceSampler buffer."""
+    pytest.importorskip("ale_py")  # ALE is an optional system dep
+    cfg = load_experiment_cfg("bbf/atari100k", _bbf_overrides())
     from src.train import _train
 
     metrics = _train(cfg)

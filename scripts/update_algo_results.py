@@ -50,6 +50,7 @@ ALGO_TARGET_PREFIXES: dict[str, str] = {
     "src.algorithms.tdmpc2.": "tdmpc2",
     "src.algorithms.dreamer.": "dreamer",
     "src.algorithms.rainbow.": "rainbow",
+    "src.algorithms.bbf.": "bbf",
 }
 
 
@@ -65,8 +66,9 @@ class ExperimentSpec:
     path: str  # e.g. ``dqn/gym``
     algorithm_choice: str | None  # set when it differs from the experiment default
     algo_identity: tuple  # (target, obs_key, encoder_type, world-model target)
-    env_family: str  # ``gym`` | ``dm_control`` | ``ale_plain`` | ``ale_wrapped``
+    env_family: str  # ``gym`` | ``dm_control`` | ``ale``
     env_task: str | None  # this experiment's default task
+    algo_scalars: tuple  # every scalar algorithm kwarg, for tie-breaking
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,23 @@ def _to_dict(node) -> dict:
     if node is None:
         return {}
     return OmegaConf.to_container(node, resolve=True)
+
+
+def algo_scalars(algo_cfg: dict) -> tuple:
+    """Every scalar algorithm kwarg, as a sorted ``(key, value)`` tuple.
+
+    Used only to break ties between experiments that share an identity and a
+    benchmark — e.g. BBF's RR2 and RR8 variants, which differ solely by
+    ``replay_ratio``. Comparing all scalars avoids having to hand-register a
+    new discriminator every time such a pair appears.
+    """
+    return tuple(
+        sorted(
+            (k, v)
+            for k, v in algo_cfg.items()
+            if isinstance(v, (int, float, bool, str)) or v is None
+        )
+    )
 
 
 def _class_identity(target: str | None) -> tuple | None:
@@ -192,6 +211,7 @@ def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec
                 algo_identity=algo_identity(base_algo),
                 env_family=family,
                 env_task=task,
+                algo_scalars=algo_scalars(base_algo),
             )
         )
 
@@ -203,7 +223,8 @@ def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec
                 variant = _compose([f"experiment={exp_path}", f"algorithm={option}"])
             except Exception:
                 continue
-            identity = algo_identity(_to_dict(variant.algorithm))
+            variant_algo = _to_dict(variant.algorithm)
+            identity = algo_identity(variant_algo)
             if identity == specs[-1].algo_identity:
                 continue
             specs.append(
@@ -213,6 +234,7 @@ def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec
                     algo_identity=identity,
                     env_family=family,
                     env_task=task,
+                    algo_scalars=algo_scalars(variant_algo),
                 )
             )
     return specs
@@ -262,21 +284,38 @@ def infer_experiment_config(
         return f"experiment={explicit}"
 
     env_cfg = config.get("environment") or {}
-    identity = algo_identity(config.get("algorithm") or {})
+    run_algo = config.get("algorithm") or {}
+    identity = algo_identity(run_algo)
     family = env_family(env_cfg)
     task = env_task(env_cfg)
 
-    for spec in registry:
-        if spec.algo_identity != identity or spec.env_family != family:
-            continue
-        parts = [f"experiment={spec.path}"]
-        if spec.algorithm_choice:
-            parts.append(f"algorithm={spec.algorithm_choice}")
-        if task and task != spec.env_task:
-            parts.append(f"environment.task={task}")
-        return " ".join(parts)
+    candidates = [
+        spec
+        for spec in registry
+        if spec.algo_identity == identity and spec.env_family == family
+    ]
+    if not candidates:
+        return "—"
 
-    return "—"
+    # Several experiments can share an identity and a benchmark and differ only
+    # in scalar hyperparameters (BBF RR2 vs RR8). Pick the one whose scalars the
+    # run actually agrees with, rather than whichever sorts first.
+    if len(candidates) > 1:
+        run_scalars = dict(algo_scalars(run_algo))
+        candidates.sort(
+            key=lambda s: sum(
+                1 for k, v in s.algo_scalars if k in run_scalars and run_scalars[k] == v
+            ),
+            reverse=True,
+        )
+
+    spec = candidates[0]
+    parts = [f"experiment={spec.path}"]
+    if spec.algorithm_choice:
+        parts.append(f"algorithm={spec.algorithm_choice}")
+    if task and task != spec.env_task:
+        parts.append(f"environment.task={task}")
+    return " ".join(parts)
 
 
 def _read_yaml_scalar(path: Path, key: str) -> str | None:

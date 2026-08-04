@@ -20,6 +20,7 @@ Implemented experiments:
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`      |
 | DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
+| BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
 
 Other algorithms will follow.
 
@@ -42,7 +43,14 @@ stack is TorchRL transforms (`NoopResetEnv`, `GrayScale`, `Resize`, `CatFrames`,
 …). A TorchRL `MaxAndSkipTransform` is also available when episodic-life is not
 required.
 Rainbow with standard (Dopamine-style) hyperparameters is available as
-`algorithm=rainbow`; `algorithm=der` is the official data-efficient preset.
+`algorithm=rainbow`; the official data-efficient preset (DER) is applied by
+`experiment=rainbow/atari100k`, since it is a property of the 100k budget.
+BBF (`algorithm=bbf`) builds on the same Atari-100k stack but subclasses
+`BaseAlgorithm` directly: it hand-writes the C51 target and reuses a torchrl
+`PrioritizedSliceSampler` for contiguous-window sampling (n-step computed at
+sample time), adding SPR self-prediction, an Impala-CNN ×4 encoder, periodic
+shrink-and-perturb resets, annealed n-step/discount, DrQ augmentation and an EMA
+target. It requires `trainer.num_envs=1` (a single contiguous stream).
 
 ## Design principles
 
@@ -367,10 +375,14 @@ Use this when training-time and evaluation-time observations should differ
 - delegates device resolution to `src/utils/device.py`.
 
 `BaseTrainer` owns env lifecycle, `evaluate(num_episodes)` (greedy rollout), and
-checkpoint orchestration. Checkpointing is **off by default** (`checkpoint.enabled:
-false` in `configs/train.yaml`); enable it with
-`checkpoint.enabled=true` (and optionally tune `save_every_n_steps` /
-`save_last`). `checkpoint.resume_from` still works when checkpointing is disabled.
+checkpoint orchestration. By default (`configs/train.yaml`) a final
+`checkpoints/last.pt` is written at train end (`checkpoint.enabled: true`,
+`save_last: true`); periodic saves are off (`save_every_n_steps: 0`) — set a
+positive value to enable them. After training, `fit()` runs one evaluation of
+`trainer.final_eval_episodes` episodes (default 10 in
+`configs/trainer/default.yaml`; `0` disables) on the eval environment and logs the `eval/*` metrics at the final step; the BBF
+experiments set it to `100` to match the official Atari-100k protocol.
+`checkpoint.resume_from` works regardless of `checkpoint.enabled`.
 
 ## File map
 
@@ -409,6 +421,11 @@ src/
       rainbow.py            — RainbowAlgorithm(DQNAlgorithm): dueling/noisy/distributional network
                               + prioritized/multi-step replay, built from TorchRL's own classes
       README.md             — theory, pseudocode, Rainbow-vs-DER presets, W&B benchmark table
+    bbf/
+      bbf.py                — BBFAlgorithm(BaseAlgorithm): hand-written C51 + SPR + shrink-and-perturb
+                              resets + annealed n-step/discount over a torchrl PrioritizedSliceSampler buffer
+      networks.py           — BBFNetwork: Impala-CNN ×4 encoder, transition model, SPR projection/predictor, dueling C51 heads
+      README.md             — theory, update-rule math, pseudocode→code, deviations, W&B benchmark table
   components/               — reusable building blocks (per-file attribution headers)
     math.py                 — symlog/symexp (canonical), two-hot discrete regression, squashed-Gaussian helpers (from nicklashansen/tdmpc2, MIT)
     layers.py               — SimNorm, NormedLinear, vmapped Ensemble, LayerNorm-Mish mlp (from nicklashansen/tdmpc2, MIT)
@@ -434,6 +451,7 @@ configs/
   algorithm/tdmpc2.yaml     — TD-MPC2 HPs (model_size=5 preset; scalar knobs, no _partial_)
   algorithm/rainbow.yaml    — Rainbow HPs (standard Dopamine-style values; scalar knobs, no _partial_)
   algorithm/dreamer.yaml    — DreamerV3 (+ dreamerpro.yaml, r2dreamer.yaml variants)
+  algorithm/bbf.yaml        — BBF HPs (official BBF.gin RR2 preset; scalar knobs, no _partial_)
   algorithm/network/{mlp_q,nature_dqn}.yaml — swappable DQN Q-network (state / pixels)
   algorithm/policy/{mlp_normal,nature_cnn_categorical}.yaml — swappable PPO actor+critic(+trunk)
   algorithm/dreamer/{12m..400m}.yaml — Dreamer model-size presets
@@ -450,12 +468,16 @@ configs/
   experiment/tdmpc2/dmc.yaml    — TD-MPC2 DMC cheetah-run
   experiment/rainbow/atari100k.yaml — Data-Efficient Rainbow on Atari-100k
   experiment/dreamer/atari100k.yaml — DreamerV3 on Atari-100k
+  experiment/bbf/atari100k.yaml     — BBF on Atari-100k (RR2 default; num_envs=1)
+  experiment/bbf/atari100k_rr8.yaml — BBF flagship RR8 variant (same 40k-grad-step reset cadence)
   logger/{wandb,tensorboard}.yaml
   paths/default.yaml
   train.yaml, eval.yaml
 tests/
   test_smoke.py             — smoke tests: DQN (CartPole, Pong), DDPG, A2C, PPO (DMC cheetah,
-                              JamesBond), TD-MPC2, DER
+                              JamesBond), TD-MPC2, DER, BBF, DreamerV3
+  test_bbf_buffer.py        — BBF buffer/sampling unit tests (n-step masking, C51 projection,
+                              PrioritizedSliceSampler windows); no env, no ale_py
 ```
 
 ## Documentation
@@ -511,6 +533,8 @@ python src/train.py experiment=ppo/ale             # PPO on Atari-100k JamesBond
 python src/train.py experiment=tdmpc2/dmc          # TD-MPC2 model-based control (1M frames, GPU)
 python src/train.py experiment=rainbow/atari100k   # DER on Atari-100k Jamesbond (100k frames, GPU)
 python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Hero (GPU)
+python src/train.py experiment=bbf/atari100k       # BBF on Atari-100k Jamesbond (RR2, GPU)
+python src/train.py experiment=bbf/atari100k_rr8   # BBF flagship RR8 (~4x compute)
 
 # Any task within a benchmark is one override; GPU index is not committed:
 python src/train.py experiment=dqn/ale environment.task=Breakout trainer.devices=[3]

@@ -10,3 +10,4 @@ total_frames: 1_000_000
 num_envs: 1             # number of parallel environments
 log_every_n_steps: 1_000
 num_eval_episodes: 10   # used by src/eval.py
+final_eval_episodes: 10 # episodes evaluated once after training (0 disables)
