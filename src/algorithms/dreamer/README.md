@@ -211,9 +211,9 @@ key but labels it `legacy` in the Notes column. Replace them with new runs.
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [dreamer_hero_atari100k_200m_2026-07-09_10-35-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/8m6v58pk) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 42 | 110,000 | 10,253.3 | — |
-| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/51h2g461) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 45 | 110,000 | 12,391.2 | — |
-| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/p9fwwjdd) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 44 | 110,000 | 6,331.2 | — |
-| [dreamer_hero_atari100k_200m_2026-07-09_12-18-11](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/udxi7rsc) | ALE/Hero-v5 | `experiment=dreamer/atari100k` | 43 | 110,000 | 6,920.5 | — |
-| [dreamerpro_hero_atari100k_200m_2026-07-09_11-16-03](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/7ydjbg18) | ALE/Hero-v5 | `experiment=dreamer/atari100k algorithm=dreamerpro` | 44 | 110,000 | 2,983.5 | DreamerPro |
-| [r2dreamer_hero_atari100k_200m_2026-07-08_14-10-27](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/4sz2koi1) | ALE/Hero-v5 | `experiment=dreamer/atari100k algorithm=r2dreamer` | 42 | 100,000 | 4,598.8 | R2Dreamer |
+| [dreamer_Jamesbond_atari100k_200m_2026-08-03_12-04-31](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/wwt2hl3y) | ALE/Jamesbond-v5 | `experiment=dreamer/atari100k environment.task=Jamesbond` | 1 | 110,000 | 222.0 | — |
+| [dreamer_Jamesbond_atari100k_200m_2026-08-03_13-40-08](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/9o2v5b67) | ALE/Jamesbond-v5 | `experiment=dreamer/atari100k environment.task=Jamesbond` | 2 | 110,000 | 195.0 | — |
+| [dreamer_Jamesbond_atari100k_200m_2026-08-03_13-41-35](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/omlhkgde) | ALE/Jamesbond-v5 | `experiment=dreamer/atari100k environment.task=Jamesbond` | 3 | 110,000 | 168.5 | — |
+| [dreamer_cheetah-run_2026-08-03_20-44-09](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/7a2tmns6) | cheetah-run | `experiment=dreamer/dmc` | 1 | 1,000,000 | 687.0 | — |
+| [dreamer_cheetah-run_2026-08-03_23-05-17](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/qw6dmfpk) | cheetah-run | `experiment=dreamer/dmc` | 2 | 1,000,000 | 798.6 | — |
+| [dreamer_cheetah-run_2026-08-03_23-49-29](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/o556nwid) | cheetah-run | `experiment=dreamer/dmc` | 3 | 1,000,000 | 841.2 | — |

@@ -128,5 +128,9 @@ Core and continuous-action details from the
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [ppo_atari_jamesbond_train_2026-07-09_11-09-25](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/1i5pg9ib) | ALE/Jamesbond-v5 | `experiment=ppo/ale` | 42 | 100,000 | 3.00 | best train/episode_reward |
-| [ppo_dmc_cheetah_run_2026-07-09_11-08-33](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/q8505ie7) | cheetah/run | `experiment=ppo/dmc` | 42 | 1,000,000 | 573.0 | best train/episode_reward |
+| [ppo_Jamesbond_2026-08-03_10-01-01](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/79m7ei5q) | ALE/Jamesbond-v5 | `experiment=ppo/ale` | 1 | 100,000 | 52.0 | — |
+| [ppo_Jamesbond_2026-08-03_10-01-13](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/s2ik9uaz) | ALE/Jamesbond-v5 | `experiment=ppo/ale` | 2 | 100,000 | 36.5 | — |
+| [ppo_Jamesbond_2026-08-03_10-06-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/hjahokqn) | ALE/Jamesbond-v5 | `experiment=ppo/ale` | 3 | 100,000 | 29.5 | — |
+| [ppo_cheetah-run_2026-08-03_15-13-33](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/riox94hm) | cheetah-run | `experiment=ppo/dmc` | 1 | 1,000,000 | 334.1 | — |
+| [ppo_cheetah-run_2026-08-03_15-17-59](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/mkznx8c5) | cheetah-run | `experiment=ppo/dmc` | 2 | 1,000,000 | 551.9 | — |
+| [ppo_cheetah-run_2026-08-03_16-06-55](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/qpkb0y13) | cheetah-run | `experiment=ppo/dmc` | 3 | 1,000,000 | 503.2 | — |
