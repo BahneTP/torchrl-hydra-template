@@ -1,29 +1,21 @@
+defaults:
+  # Actor, critic and the optional shared trunk are one config group, not
+  # inline blocks: Hydra merges dicts, so patching `actor_network._target_`
+  # from an experiment would leave this option's `num_cells` behind. Swap the
+  # whole option instead — `algorithm/policy=nature_cnn_categorical` on the
+  # CLI, or `override /algorithm/policy:` in an experiment.
+  - policy: mlp_normal
+  - _self_
+
 _target_: src.algorithms.ppo.PPOAlgorithm
 
 # Defaults mirror cleanRL's ppo_continuous_action.py (MuJoCo/DMC, 1M frames).
-# Callable factories (override via nested configs; requires ``instantiate(cfg.algorithm)``).
-actor_network:
-  _partial_: true
-  _target_: src.components.networks.make_normal_mlp_actor
-  num_cells: [64, 64]
-  # `torch.nn.Tanh` via `_target_` would instantiate a module; MLP needs the class.
-  activation_class:
-    _target_: hydra.utils.get_class
-    path: torch.nn.Tanh
-
-value_network:
-  _partial_: true
-  _target_: src.components.networks.make_mlp_value
-  num_cells: [64, 64]
-  activation_class:
-    _target_: hydra.utils.get_class
-    path: torch.nn.Tanh
 
 # Optimisation
 lr: 3.0e-4
 adam_eps: 1.0e-5
 anneal_lr: true
-anneal_frames: 1_000_000  # keep equal to trainer.total_frames (lr reaches 0 at the end)
+anneal_frames: ${trainer.total_frames}  # lr reaches 0 at the end of training
 gamma: 0.99
 gae_lambda: 0.95
 num_epochs: 10

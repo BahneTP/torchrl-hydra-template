@@ -89,10 +89,11 @@ $\gamma^H Q(z_H, \cdot)$ is added.
 | Policy wrapper | [`policy.py`](policy.py) |
 | Shared components | [`src/components/`](../../components/) (`math.py`, `layers.py`, `scale.py`) |
 | HPs | [`configs/algorithm/tdmpc2.yaml`](../../../configs/algorithm/tdmpc2.yaml) |
-| Experiment | [`configs/experiment/tdmpc2/cheetah_run.yaml`](../../../configs/experiment/tdmpc2/cheetah_run.yaml) |
+| Experiment | [`configs/experiment/tdmpc2/dmc.yaml`](../../../configs/experiment/tdmpc2/dmc.yaml) |
 
 ```shell
-python src/train.py experiment=tdmpc2/cheetah_run
+python src/train.py experiment=tdmpc2/dmc
+python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
 ```
 
 Defaults reproduce the upstream single-task config at `model_size=5` (~5M params:
@@ -139,7 +140,7 @@ old-API checkpoints are converted via `api_model_conversion`.
 ```shell
 curl -sL -o checkpoints/cheetah-run-1.pt \
   "https://huggingface.co/nicklashansen/tdmpc2/resolve/main/dmcontrol/cheetah-run-1.pt"
-python src/eval.py algorithm=tdmpc2 environment=dmc_cheetah_run \
+python src/eval.py algorithm=tdmpc2 environment=dmc \
   checkpoint.resume_from=$PWD/checkpoints/cheetah-run-1.pt \
   trainer.accelerator=gpu trainer.num_eval_episodes=10
 ```
@@ -153,4 +154,4 @@ Verified result with the official `cheetah-run-1.pt` (2023-06-03) through this p
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [tdmpc2_dmc_cheetah_run_2026-07-08_12-38-12](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/xsrs44tn) | cheetah | `experiment=tdmpc2/cheetah_run` | 1 | 1,000,000 | 922.3 | best train/episode_reward |
+| [tdmpc2_dmc_cheetah_run_2026-07-08_12-38-12](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/xsrs44tn) | cheetah | `experiment=tdmpc2/dmc` | 1 | 1,000,000 | 922.3 | best train/episode_reward |

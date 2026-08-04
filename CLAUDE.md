@@ -18,20 +18,33 @@ The template enforces a hard split between three components:
 |-----------------|-------------------------------------------------------------------------|
 | **Algorithm**   | Everything that affects learning: network, replay buffer, loss, optimiser, exploration, target-net schedule, collector config (`frames_per_batch`, `init_random_frames`, ...). Hyperparameters live as keyword arguments on `__init__`. |
 | **Trainer**     | The loop. Device placement, data collection (creates `Collector` from algorithm config), logging, callbacks, checkpointing. **No knobs that affect learning live here.** |
-| **Environment** | Fixed task definition. Env name + transform list. Independent of algorithm. |
+| **Environment** | One *benchmark*: backend, preprocessing stack, and a `task` key naming the task within it. Independent of algorithm. |
+| **Experiment**  | One algorithm × one benchmark. Owns everything that depends on the *task*: pixel-vs-state network choice, budgets, exploration schedules, replay capacity, episode length. |
 
-Two derived rules:
+Derived rules:
 
 1. **RL algorithm code should read like the paper's pseudocode.** `step()` should be
    short and obviously correspond to the algorithm's update equations.
 2. **Anything that influences reward / sample efficiency lives in the algorithm file.**
    If a knob shifts the learning curve, it belongs on `__init__`.
-3. **Hydra factories.** Callable design choices (`replay_buffer`, `network`, …) are
+3. **`configs/algorithm/*.yaml` carries no task specifics.** The Python defaults and
+   the algorithm YAML describe the algorithm; anything true only of a particular
+   env or budget goes in `configs/experiment/<algo>/<benchmark>.yaml`. There is no
+   `dqn_atari.yaml` / `ppo_atari.yaml` / `der.yaml` — those were per-task forks.
+4. **Hydra factories.** Callable design choices (`replay_buffer`, `network`, …) are
    configured with `_partial_` / nested `_target_` in `configs/algorithm/*.yaml` and
    built via **`instantiate(cfg.algorithm, device=None)`** in `train.py` / `eval.py`.
+5. **A factory with more than one variant becomes a config group**, never an inline
+   dict patched from an experiment. Hydra *merges* dicts, so patching `_target_`
+   alone leaves the previous option's kwargs behind — loudly for `NatureDQN`
+   (`unexpected keyword argument 'num_cells'`), silently for PPO's heads. See
+   `configs/algorithm/network/` and `configs/algorithm/policy/`.
+6. **Environments are named per benchmark, tasks are overrides.** `gym`, `dmc`,
+   `ale`, `atari100k` — each exposing `task`. Eval configs interpolate
+   `${environment.task}` absolutely so one override moves both envs.
 
-Currently DQN (CartPole, Pong), DDPG (HalfCheetah-v4), A2C (HalfCheetah-v4),
-PPO (DMC cheetah-run, Atari-100k JamesBond) and TD-MPC2 (dm_control cheetah-run)
+Currently DQN (gym, ALE), DDPG (gym), A2C (gym), PPO (DMC, ALE),
+TD-MPC2 (DMC), Rainbow/DER (Atari-100k) and DreamerV3 + variants (Atari-100k)
 are implemented; other algorithms will follow. Shared, algorithm-agnostic
 building blocks (e.g. orthogonal-init actor-critic factories, and reusable code
 adapted from external repos with source-attribution headers) live in
@@ -124,6 +137,10 @@ entry points.
 
 ```yaml
 # configs/algorithm/dqn.yaml (illustrative)
+defaults:
+  - network: mlp_q      # group: swapped whole, never patched in place
+  - _self_
+
 _target_: src.algorithms.dqn.DQNAlgorithm
 replay_buffer:
   _partial_: true
@@ -132,16 +149,35 @@ replay_buffer:
     _target_: torchrl.data.LazyTensorStorage
     max_size: 10_000
     device: cpu
-network:
-  _partial_: true
-  _target_: torchrl.modules.MLP
-  num_cells: [120, 84]
-  activation_class:
-    _target_: hydra.utils.get_class
-    path: torch.nn.ReLU
 lr: 2.5e-4
 gamma: 0.99
 # ...
+```
+
+```yaml
+# configs/algorithm/network/mlp_q.yaml — package inferred as algorithm.network
+_partial_: true
+_target_: src.components.networks.make_mlp_q_net
+num_cells: [120, 84]
+activation_class:
+  _target_: hydra.utils.get_class
+  path: torch.nn.ReLU
+```
+
+```yaml
+# configs/experiment/dqn/ale.yaml — task specifics live here
+defaults:
+  - override /algorithm: dqn
+  - override /algorithm/network: nature_dqn
+  - override /environment: ale
+  - override /environment@eval_environment: ale_eval
+  - _self_
+
+environment:
+  task: Pong
+algorithm:
+  obs_key: pixels
+  annealing_frames: 4_000_000
 ```
 
 ## What not to do
@@ -154,3 +190,9 @@ gamma: 0.99
 - Do **not** add `OmegaConf` imports to `base.py` — it has no config logic.
 - Do **not** add new algorithms or environment backends without first updating
   README.md and AGENTS.md to describe them.
+- Do **not** put task specifics (game name, pixel network, training budget,
+  episode length) in `configs/algorithm/*.yaml` — they belong in the experiment.
+- Do **not** create a per-task env config (`pong_train.yaml`, `jamesbond_train.yaml`).
+  Add the *benchmark* once and select the task with `environment.task=`.
+- Do **not** patch a network factory's `_target_` from an experiment body; override
+  the config group instead (`override /algorithm/network: ...`).

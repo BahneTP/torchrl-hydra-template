@@ -60,13 +60,13 @@ built from TorchRL components (`ClipPPOLoss`, `GAE`, `ProbabilisticActor`,
 | Algorithm | [`ppo.py`](ppo.py) |
 | Shared networks | [`src/components/networks.py`](../../components/networks.py) |
 | HPs (state / continuous) | [`configs/algorithm/ppo.yaml`](../../../configs/algorithm/ppo.yaml) |
-| HPs (pixels / Atari) | [`configs/algorithm/ppo_atari.yaml`](../../../configs/algorithm/ppo_atari.yaml) |
-| Experiment: DMC cheetah-run 1M | [`configs/experiment/ppo/dmc_cheetah_run.yaml`](../../../configs/experiment/ppo/dmc_cheetah_run.yaml) |
-| Experiment: Atari-100k JamesBond | [`configs/experiment/ppo/jamesbond.yaml`](../../../configs/experiment/ppo/jamesbond.yaml) |
+| Policy (pixels / Atari) | [`configs/algorithm/policy/nature_cnn_categorical.yaml`](../../../configs/algorithm/policy/nature_cnn_categorical.yaml) |
+| Experiment: DMC cheetah-run 1M | [`configs/experiment/ppo/dmc.yaml`](../../../configs/experiment/ppo/dmc.yaml) |
+| Experiment: Atari-100k JamesBond | [`configs/experiment/ppo/ale.yaml`](../../../configs/experiment/ppo/ale.yaml) |
 
 ```shell
-python src/train.py experiment=ppo/dmc_cheetah_run
-python src/train.py experiment=ppo/jamesbond
+python src/train.py experiment=ppo/dmc
+python src/train.py experiment=ppo/ale
 ```
 
 ### Mapping pseudocode → code
@@ -106,7 +106,7 @@ Core and continuous-action details from the
 | C3 | Action clipping to valid range | env-side `ClipTransform(in_keys_inv=[action])` — stored action/log-prob stay unclipped |
 | C4 | Observation normalization | env-side `VecNorm(in_keys=[observation])` |
 | C5 | Observation clipping to [-10, 10] | env-side `ClipTransform` |
-| A1–A7 | Atari wrappers (noop reset, frame skip, episodic life, reward sign, 84×84 grayscale, frame stack) | `configs/environment/jamesbond_train.yaml` |
+| A1–A7 | Atari wrappers (noop reset, frame skip, episodic life, reward sign, 84×84 grayscale, frame stack) | `configs/experiment/ppo/ale.yaml` |
 
 **Documented deviations:**
 
@@ -120,7 +120,7 @@ Core and continuous-action details from the
   100k-step budget (~97 rollouts); everything else matches cleanRL's `ppo_atari.py`.
 - **Eval with fresh `VecNorm` stats:** running statistics are env state and are not
   checkpointed, so evaluation environments start with cold normalization stats
-  (`jamesbond_eval.yaml` drops `VecNorm` entirely, like `pong_eval.yaml`).
+  (`ale_eval.yaml` drops `VecNorm` entirely).
 
 ## Experimental results
 
@@ -128,5 +128,5 @@ Core and continuous-action details from the
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [ppo_atari_jamesbond_train_2026-07-09_11-09-25](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/1i5pg9ib) | ALE/Jamesbond-v5 | `experiment=ppo/jamesbond` | 42 | 100,000 | 3.00 | best train/episode_reward |
-| [ppo_dmc_cheetah_run_2026-07-09_11-08-33](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/q8505ie7) | cheetah/run | `experiment=ppo/dmc_cheetah_run` | 42 | 1,000,000 | 573.0 | best train/episode_reward |
+| [ppo_atari_jamesbond_train_2026-07-09_11-09-25](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/1i5pg9ib) | ALE/Jamesbond-v5 | `experiment=ppo/ale` | 42 | 100,000 | 3.00 | best train/episode_reward |
+| [ppo_dmc_cheetah_run_2026-07-09_11-08-33](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/q8505ie7) | cheetah/run | `experiment=ppo/dmc` | 42 | 1,000,000 | 573.0 | best train/episode_reward |

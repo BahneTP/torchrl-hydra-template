@@ -28,7 +28,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 def algo_readme_path(algo: str) -> Path:
     return REPO_ROOT / "src" / "algorithms" / algo / "README.md"
-EXPERIMENT_DIR = REPO_ROOT / "configs" / "experiment"
+CONFIG_DIR = REPO_ROOT / "configs"
+EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 WANDB_TABLE_URL = "https://wandb.ai/LatentLab/torchrl-hydra-template/table"
 CANONICAL_ENTITY = "LatentLab"
 DEFAULT_PROJECT = "torchrl-hydra-template"
@@ -54,13 +55,18 @@ ALGO_TARGET_PREFIXES: dict[str, str] = {
 
 @dataclass(frozen=True)
 class ExperimentSpec:
-    """One composed experiment under ``configs/experiment/``."""
+    """One composed experiment under ``configs/experiment/``.
 
-    path: str  # e.g. ``dqn/cartpole``
-    algorithm_choice: str  # e.g. ``dqn``, ``dqn_atari``
-    environment_choice: str  # e.g. ``cartpole``, ``pong_train``
-    environment_name: str | None = None  # set when the experiment YAML overrides name directly
-    atari_game: str | None = None  # set when the experiment pins ``atari.game``
+    Built by actually composing the Hydra config rather than regex-scraping the
+    YAML, so this reads the same source of truth as the W&B run config it is
+    matched against.
+    """
+
+    path: str  # e.g. ``dqn/gym``
+    algorithm_choice: str | None  # set when it differs from the experiment default
+    algo_identity: tuple  # (target, obs_key, encoder_type, world-model target)
+    env_family: str  # ``gym`` | ``dm_control`` | ``ale_plain`` | ``ale_wrapped``
+    env_task: str | None  # this experiment's default task
 
 
 @dataclass(frozen=True)
@@ -77,67 +83,159 @@ class ResultRow:
     notes: str
 
 
+def _compose(overrides: list[str]):
+    """Compose the training config outside a Hydra runtime.
+
+    Only ``algorithm`` and ``environment`` are ever resolved by callers, so the
+    ``${hydra:...}`` interpolations in ``paths`` / ``run_name`` are never hit.
+    """
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONFIG_DIR), version_base="1.3"):
+        return compose(config_name="train", overrides=overrides)
+
+
+def _to_dict(node) -> dict:
+    from omegaconf import OmegaConf
+
+    if node is None:
+        return {}
+    return OmegaConf.to_container(node, resolve=True)
+
+
+def _class_identity(target: str | None) -> tuple | None:
+    """``(package, ClassName)`` — stable when a module path is refactored.
+
+    Historical runs logged e.g. ``src.algorithms.dreamer.dreamer.DreamerAlgorithm``
+    before the package re-export shortened it; both must resolve to the same
+    algorithm.
+    """
+    if not target:
+        return None
+    return (algo_package_from_target(target), target.rsplit(".", 1)[-1])
+
+
+def algo_identity(algo_cfg: dict) -> tuple:
+    """Identity of an algorithm setup, shared by specs and W&B run configs.
+
+    ``obs_key`` separates the pixel and state variants of one algorithm class,
+    ``encoder_type`` separates Rainbow from its data-efficient preset, and the
+    world-model class separates DreamerV3 / R2Dreamer / DreamerPro.
+    """
+    return (
+        _class_identity(algo_cfg.get("_target_")),
+        algo_cfg.get("obs_key") or "observation",
+        algo_cfg.get("encoder_type"),
+        _class_identity((algo_cfg.get("dreamer_config") or {}).get("_target_")),
+    )
+
+
+def env_family(env_cfg: dict) -> str:
+    """Coarse benchmark identity — stable across a change of task.
+
+    Deliberately coarse for Atari: the preprocessing stack has changed shape
+    over time (max-and-skip moved into ``gymnasium_wrappers``), and pinning the
+    family to it would orphan older runs of an experiment that still exists.
+    Which ALE protocol a run used is already carried by the algorithm identity
+    (``obs_key``, ``encoder_type``).
+    """
+    if env_cfg.get("backend") == "dm_control":
+        return "dm_control"
+    if str(env_cfg.get("name") or "").startswith("ALE/"):
+        return "ale"
+    return "gym"
+
+
+def env_task(env_cfg: dict) -> str | None:
+    """The task within a benchmark, normalised across old and new config shapes."""
+    task = env_cfg.get("task")
+    name = env_cfg.get("name")
+    if env_cfg.get("backend") == "dm_control":
+        if task and "-" in task:
+            return task                      # new form: cheetah-run
+        if name and task:
+            return f"{name}-{task}"          # old form: name: cheetah + task: run
+        return (name or task or "").replace("/", "-") or None
+    if name:
+        match = re.fullmatch(r"ALE/(.+)-v\d+", name)
+        return match.group(1) if match else name
+    return task
+
+
 def load_experiment_registry(root: Path = EXPERIMENT_DIR) -> list[ExperimentSpec]:
-    """Parse ``configs/experiment/**/*.yaml`` defaults into experiment specs."""
+    """Compose every experiment (and every algorithm variant of it) into a spec.
+
+    Algorithm options sharing an experiment's algorithm class are enumerated so
+    runs launched as e.g. ``experiment=dreamer/atari100k algorithm=r2dreamer``
+    still resolve to a reproducible command.
+    """
     specs: list[ExperimentSpec] = []
+    algo_options = _algorithm_options()
+
     for path in sorted(root.rglob("*.yaml")):
-        rel = path.relative_to(root)
-        exp_path = rel.with_suffix("").as_posix()
-        text = path.read_text(encoding="utf-8")
-        algo = _parse_override(text, "/algorithm")
-        env = _parse_override(text, "/environment")
-        if algo is None or env is None:
+        exp_path = path.relative_to(root).with_suffix("").as_posix()
+        try:
+            cfg = _compose([f"experiment={exp_path}"])
+        except Exception:
             continue
+        base_algo = _to_dict(cfg.algorithm)
+        env_cfg = _to_dict(cfg.environment)
+        family = env_family(env_cfg)
+        task = env_task(env_cfg)
+
         specs.append(
             ExperimentSpec(
                 path=exp_path,
-                algorithm_choice=algo,
-                environment_choice=env,
-                environment_name=_parse_env_name(text),
-                atari_game=_parse_atari_game(text),
+                algorithm_choice=None,
+                algo_identity=algo_identity(base_algo),
+                env_family=family,
+                env_task=task,
             )
         )
+
+        # Sibling algorithm options of the same class (dreamerpro, r2dreamer...).
+        for option, target in algo_options.items():
+            if target != base_algo.get("_target_"):
+                continue
+            try:
+                variant = _compose([f"experiment={exp_path}", f"algorithm={option}"])
+            except Exception:
+                continue
+            identity = algo_identity(_to_dict(variant.algorithm))
+            if identity == specs[-1].algo_identity:
+                continue
+            specs.append(
+                ExperimentSpec(
+                    path=exp_path,
+                    algorithm_choice=option,
+                    algo_identity=identity,
+                    env_family=family,
+                    env_task=task,
+                )
+            )
     return specs
 
 
-def _parse_override(text: str, group: str) -> str | None:
-    match = re.search(rf"override {re.escape(group)}:\s*(\S+)", text)
-    return match.group(1) if match else None
+def _algorithm_options() -> dict[str, str]:
+    """``{option name: _target_}`` for every top-level algorithm config.
 
-
-def _parse_env_name(text: str) -> str | None:
-    """Read environment.name from an experiment YAML if set explicitly."""
-    match = re.search(
-        r"^environment:\s*$\n(?:[ \t]+\S[^\n]*\n)*?[ \t]+name:\s*(\S[^\n]*)",
-        text,
-        re.MULTILINE,
-    )
-    return match.group(1).strip().strip("'\"") if match else None
-
-
-def _parse_atari_game(text: str) -> str | None:
-    """Read ``atari.game`` from an experiment YAML when set (Atari-100k)."""
-    match = re.search(
-        r"^atari:\s*$\n(?:[ \t]+\S[^\n]*\n)*?[ \t]+game:\s*(\S[^\n]*)",
-        text,
-        re.MULTILINE,
-    )
-    return match.group(1).strip().strip("'\"") if match else None
-
-
-def _resolve_env_choice_name(
-    raw_name: str | None,
-    *,
-    atari_game: str | None,
-) -> str | None:
-    """Resolve Hydra interpolations like ``ALE/${atari.game}-v5``."""
-    if not raw_name:
-        return None
-    if "${atari.game}" in raw_name:
-        if not atari_game:
-            return None
-        return raw_name.replace("${atari.game}", atari_game)
-    return raw_name
+    Composed rather than regex-scraped: variants like ``r2dreamer`` inherit
+    ``_target_`` through their ``defaults:`` list and have no literal key of
+    their own. Only the ``_target_`` leaf is read, so configs with unresolvable
+    interpolations (dreamer's ``${model.*}``) do not need a size preset here.
+    """
+    options: dict[str, str] = {}
+    for path in sorted((CONFIG_DIR / "algorithm").glob("*.yaml")):
+        try:
+            cfg = _compose([f"algorithm={path.stem}", "environment=gym"])
+            target = cfg.algorithm._target_
+        except Exception:
+            continue
+        if target:
+            options[path.stem] = str(target)
+    return options
 
 
 def algo_package_from_target(target: str | None) -> str | None:
@@ -153,82 +251,32 @@ def infer_experiment_config(
     config: dict,
     registry: list[ExperimentSpec],
 ) -> str:
-    """Return ``experiment=<path>`` for a W&B run config."""
+    """Return the CLI command that reproduces a W&B run.
+
+    Matching is on algorithm identity plus benchmark family, so a run of a game
+    or task the experiment does not default to still resolves — the differing
+    task comes back as an explicit ``environment.task=`` override.
+    """
     explicit = config.get("experiment")
     if explicit not in (None, "", "null"):
         return f"experiment={explicit}"
 
     env_cfg = config.get("environment") or {}
-    env_name = env_cfg.get("name")
-    algo_cfg = config.get("algorithm") or {}
-    algo_target = algo_cfg.get("_target_")
-    obs_key = algo_cfg.get("obs_key", "observation")
-    run_atari_game = (config.get("atari") or {}).get("game")
+    identity = algo_identity(config.get("algorithm") or {})
+    family = env_family(env_cfg)
+    task = env_task(env_cfg)
 
     for spec in registry:
-        # Use the name from the experiment YAML if set; fall back to env YAML.
-        # Some base env configs use name: ??? (e.g. atari_dreamer) and rely on
-        # the experiment YAML to supply the actual name. Atari-100k envs use
-        # ``ALE/${atari.game}-v5`` resolved via the experiment's ``atari.game``.
-        env_yaml = REPO_ROOT / "configs" / "environment" / f"{spec.environment_choice}.yaml"
-        env_task: str | None = None
-        atari_game = spec.atari_game or run_atari_game
-        if spec.environment_name is not None:
-            env_choice_name = _resolve_env_choice_name(
-                spec.environment_name, atari_game=atari_game
-            )
-        else:
-            if not env_yaml.exists():
-                continue
-            env_choice_name = _resolve_env_choice_name(
-                _read_yaml_scalar(env_yaml, "name"), atari_game=atari_game
-            )
-            if not env_choice_name or env_choice_name == "???":
-                continue
-        if env_yaml.exists():
-            env_task = _read_yaml_scalar(env_yaml, "task")
-        if not _env_names_match(env_name, env_choice_name, env_task):
+        if spec.algo_identity != identity or spec.env_family != family:
             continue
-
-        algo_yaml = REPO_ROOT / "configs" / "algorithm" / f"{spec.algorithm_choice}.yaml"
-        if not algo_yaml.exists():
-            continue
-        algo_target_expected = _read_yaml_scalar(algo_yaml, "_target_")
-        if algo_target_expected != algo_target:
-            continue
-
-        # Rainbow and DER share ``RainbowAlgorithm``; disambiguate by encoder.
-        encoder_expected = _read_yaml_scalar(algo_yaml, "encoder_type")
-        if encoder_expected is not None and algo_cfg.get("encoder_type") != encoder_expected:
-            continue
-
-        if spec.algorithm_choice == "dqn_atari" and obs_key != "pixels":
-            continue
-        if spec.algorithm_choice == "dqn" and obs_key not in (None, "observation"):
-            continue
-
-        return f"experiment={spec.path}"
+        parts = [f"experiment={spec.path}"]
+        if spec.algorithm_choice:
+            parts.append(f"algorithm={spec.algorithm_choice}")
+        if task and task != spec.env_task:
+            parts.append(f"environment.task={task}")
+        return " ".join(parts)
 
     return "—"
-
-
-def _env_names_match(
-    run_name: str | None,
-    yaml_name: str,
-    yaml_task: str | None = None,
-) -> bool:
-    """Match W&B env name to YAML ``name`` (and optional dm_control ``task``).
-
-    Some runs log dm_control as ``cheetah/run`` while configs keep ``name:
-    cheetah`` + ``task: run`` separately.
-    """
-    if run_name is None:
-        return False
-    if run_name == yaml_name:
-        return True
-    if yaml_task and run_name == f"{yaml_name}/{yaml_task}":
-        return True
-    return False
 
 
 def _read_yaml_scalar(path: Path, key: str) -> str | None:
@@ -311,7 +359,8 @@ def parse_run(run, registry: list[ExperimentSpec]) -> ResultRow | None:
     return ResultRow(
         run_name=run.name,
         run_url=run_url,
-        environment=env_cfg.get("name") or "—",
+        # dm_control configs carry no `name` — fall back to the task id.
+        environment=env_cfg.get("name") or env_cfg.get("task") or "—",
         config=infer_experiment_config(config, registry),
         seed=trainer_cfg.get("seed"),
         frames=trainer_cfg.get("total_frames"),

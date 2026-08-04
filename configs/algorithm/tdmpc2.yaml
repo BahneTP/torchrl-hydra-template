@@ -51,8 +51,9 @@ consistency_coef: 20.0
 reward_coef: 0.1
 value_coef: 0.1
 
-# --- Discount heuristic (episode length in decision steps) ---
-episode_length: 500
+# --- Discount heuristic ---
+# `episode_length` (decision steps per episode) is a property of the env's
+# transform stack, so it is set per experiment, not here.
 discount_denom: 5
 discount_min: 0.95
 discount_max: 0.995

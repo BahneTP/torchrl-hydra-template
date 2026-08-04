@@ -23,7 +23,7 @@ import time
 
 from tensordict import TensorDict
 
-from src.trainers.BaseTrainer import BaseTrainer, TrainerEvent, fire_callbacks
+from src.trainers.base import BaseTrainer, TrainerEvent, fire_callbacks
 
 
 class StepTrainer(BaseTrainer):

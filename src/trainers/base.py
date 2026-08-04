@@ -19,8 +19,6 @@ class TrainerEvent(Enum):
     ON_TRAIN_START = auto()
     ON_STEP_END = auto()
     ON_TRAIN_END = auto()
-    ON_EVAL_START = auto()
-    ON_EVAL_END = auto()
 
 
 @runtime_checkable
