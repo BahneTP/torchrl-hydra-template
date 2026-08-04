@@ -441,16 +441,101 @@ contract above is what `rlops` expects; the first run builds an isolated
 env).
 
 ```shell
-./scripts/make_figures.sh                     # every group, W&B tag `template`
-./scripts/make_figures.sh --group atari100k   # one comparison group
-./scripts/make_figures.sh --tag eval-recheck  # a different tag
+./scripts/make_figures.sh                              # every group, W&B tag `template`
+./scripts/make_figures.sh --group atari100k            # one comparison group
+./scripts/make_figures.sh --tag template-v2 --publish  # regenerate docs/figures/
 ```
 
+Figures are plotted on `charts/eval_episodic_return`, not the canonical
+`charts/episodic_return`, so a comparison always shows the *same measurement*
+for every algorithm in it. `canonical_source` is a per-experiment decision and
+legitimate either way, but it means the canonical key is eval rollouts for BBF
+and DreamerV3 and the training stream for `ppo/ale` — a stochastic-policy curve
+next to two deterministic-protocol ones. On DMC the two keys are identical.
+
 Read the script's header before trusting a plot. `rlops` averages the last 100
-logged points of `charts/episodic_return` whatever stream produced them, so runs
-recorded under different evaluation protocols are silently incomparable — and a
-run whose canonical episodes all sit at one step renders as a flat line, because
-the single point is back-filled across the axis.
+logged points of whatever metric it is given, from whatever stream produced it,
+so runs recorded under different evaluation protocols are silently incomparable
+— and a run whose episodes all sit at one step renders as a flat line, because
+the single point is back-filled across the axis. Use `--tag` to keep one
+sweep's runs together (see [Multi-GPU benchmark sweeps](#multi-gpu-benchmark-sweeps)).
+
+### Benchmark results
+
+Three seeds per algorithm, produced by `./scripts/run_benchmarks.sh --gpus 2,3
+--tag template-v2` and plotted with `./scripts/make_figures.sh --tag
+template-v2 --publish`. Shaded bands are ±1 std over seeds; every number is the
+mean of the last 100 logged evaluation episodes.
+
+**Read these as a template smoke test, not as a benchmark claim.** Each suite
+here is a *single* task, so rliable's median / IQM / mean necessarily coincide
+(visible below) and the performance profile is close to degenerate — those
+panels only start carrying information across many tasks. Three seeds on one
+task is also far too few to separate implementations that land close together.
+
+#### Atari-100k — Jamesbond
+
+|              | DreamerV3      | BBF             | PPO           |
+|:-------------|:---------------|:----------------|:--------------|
+| Jamesbond-v5 | 385.33 ± 38.35 | 825.83 ± 309.25 | 25.67 ± 19.15 |
+
+![Atari-100k Jamesbond return](docs/figures/atari100k.png)
+
+100k agent steps (400k game frames), 10-episode evaluations every 10k steps.
+The ordering is the expected one — BBF, the sample-efficiency specialist,
+clears DreamerV3, while PPO sits at random play (29.0 on this game) at a budget
+it was never designed for. BBF's ±309 spread across three seeds is not noise in
+the plot but the task: the official RR2 release reports mean ≈ 1125 over 14
+seeds with min 573 and max 1490 (see
+[BBF's README](src/algorithms/bbf/README.md)), so our three seeds
+(1251 / 702 / 524) sit inside that spread with the mean pulled low. The spike
+near 30k is the same effect at a 10-episode measurement — which is why the
+protocol also takes 100 episodes at the end.
+
+![Atari-100k aggregate metrics](docs/figures/atari100k_aggregate.png)
+![Atari-100k performance profile](docs/figures/atari100k_performance_profile.png)
+![Atari-100k sample efficiency](docs/figures/atari100k_sample_efficiency.png)
+![Atari-100k sample and walltime efficiency](docs/figures/atari100k_sample_walltime_efficiency.png)
+
+Scores are human-normalised with openrlbenchmark's Atari table (Jamesbond:
+random 29.0, human 302.8), so 1.0 is human level.
+
+![Atari-100k return vs walltime](docs/figures/atari100k-time.png)
+
+The same curves against wall-clock: at this budget BBF costs ~108 minutes per
+seed on one GPU and DreamerV3 ~95, against PPO's ~5.
+
+#### DMC Proprio — cheetah-run
+
+|             | DreamerV3      | TD-MPC2       | PPO            |
+|:------------|:---------------|:--------------|:---------------|
+| cheetah-run | 775.60 ± 65.02 | 907.27 ± 9.31 | 463.07 ± 93.30 |
+
+![DMC cheetah-run return](docs/figures/dmc.png)
+
+1M agent steps on state observations, 10-episode evaluations every 10k steps.
+TD-MPC2 reaches ~900 within 200k steps and is the tightest across seeds
+(±9.31) — above the 866.9 ± 11.1 this port measures from the *official*
+`cheetah-run-1.pt` checkpoint (see
+[TD-MPC2's README](src/algorithms/tdmpc2/README.md)), which is the closest
+thing here to a ground-truth reference. DreamerV3 is slower but still climbing
+at 1M; PPO plateaus around 460. All three run the same `environment: dmc`
+stack, so this is a like-for-like comparison.
+
+![DMC aggregate metrics](docs/figures/dmc_aggregate.png)
+![DMC performance profile](docs/figures/dmc_performance_profile.png)
+![DMC sample efficiency](docs/figures/dmc_sample_efficiency.png)
+![DMC sample and walltime efficiency](docs/figures/dmc_sample_walltime_efficiency.png)
+
+Scores here are min-max normalised over the runs in the comparison (no human
+baseline exists for DMC), so 1.0 is the best run in the plot, not an absolute
+ceiling.
+
+![DMC return vs walltime](docs/figures/dmc-time.png)
+
+Against wall-clock the ranking shifts: TD-MPC2's ~900 costs ~219 minutes per
+seed (MPPI planning dominates), DreamerV3 reaches ~775 in ~124, and PPO's ~460
+takes ~49.
 
 ### Trainer
 

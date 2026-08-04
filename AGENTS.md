@@ -26,6 +26,12 @@ Implemented experiments:
 
 Other algorithms will follow.
 
+Cross-algorithm results for the two comparison groups (Atari-100k Jamesbond and
+DMC cheetah-run, 3 seeds each) live in **README.md → Benchmark results**, with
+the figures in `docs/figures/`. Regenerate them from W&B with
+`./scripts/make_figures.sh --tag <sweep tag> --publish`; never hand-edit the
+tables there, they are `rlops` output.
+
 **Experiments are named after the benchmark, not the task.** The table shows
 each experiment's *default* task; every environment config exposes a single
 `task` key, so any other task is one override:
@@ -659,8 +665,12 @@ python scripts/update_algo_results.py              # refresh algo README benchma
 
 # Comparison figures + rliable, via openrlbenchmark's own rlops CLI.
 # First run builds an isolated .venv-openrlbenchmark; output in logs/analysis/.
+# Plotted on charts/eval_episodic_return so every algorithm in a figure shows
+# the same measurement (canonical_source differs per experiment). `--publish`
+# copies PNGs + tables into docs/figures/, which README.md embeds.
 ./scripts/make_figures.sh                          # every group, tag `template`
 ./scripts/make_figures.sh --group atari100k        # one comparison group
+./scripts/make_figures.sh --tag template-v2 --publish   # regenerate README figures
 pytest tests/test_smoke.py -v
 
 # Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):

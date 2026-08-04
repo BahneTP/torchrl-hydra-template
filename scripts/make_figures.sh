@@ -11,11 +11,15 @@
 #
 #   ./scripts/make_figures.sh                    # every group, tag `template`
 #   ./scripts/make_figures.sh --group atari100k  # one group
-#   ./scripts/make_figures.sh --tag eval-recheck # a different W&B tag
-#   ./scripts/make_figures.sh --entity LatentLab --project torchrl-hydra-template
+#   ./scripts/make_figures.sh --tag template-v2  # a different W&B tag
+#   ./scripts/make_figures.sh --metric charts/episodic_return   # override metric
+#   ./scripts/make_figures.sh --tag template-v2 --publish       # + copy into docs/figures/
 #
 # Output: logs/analysis/<group>{,_aggregate,_performance_profile,
-# _sample_efficiency}.{png,pdf,svg} plus a markdown/csv score table.
+# _sample_efficiency,_sample_walltime_efficiency}.{png,pdf,svg} plus a
+# markdown/csv score table. `--publish` copies the PNGs and tables into
+# docs/figures/, which is what README.md embeds — regenerate the committed
+# figures with `--tag <sweep tag> --publish`.
 #
 # READ THE CAVEAT BEFORE USING THE NUMBERS: rlops averages the last
 # `--metric-last-n-average-window` (100) logged points of
@@ -40,7 +44,10 @@ ENTITY="${WANDB_ENTITY:-LatentLab}"
 PROJECT="${WANDB_PROJECT:-torchrl-hydra-template}"
 TAG="template"
 GROUP=""
+METRIC=""
 OUT_DIR="logs/analysis"
+PUBLISH_DIR="docs/figures"
+PUBLISH=0
 VENV=".venv-openrlbenchmark"
 
 while [[ $# -gt 0 ]]; do
@@ -49,8 +56,10 @@ while [[ $# -gt 0 ]]; do
     --project)  PROJECT="$2"; shift 2 ;;
     --tag)      TAG="$2"; shift 2 ;;
     --group)    GROUP="$2"; shift 2 ;;
+    --metric)   METRIC="$2"; shift 2 ;;
     --out)      OUT_DIR="$2"; shift 2 ;;
-    -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
+    --publish)  PUBLISH=1; shift ;;
+    -h|--help)  sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -69,24 +78,36 @@ mkdir -p "$OUT_DIR"
 
 # -------------------------------------------------------------------- groups
 #
-# Format: NAME | ENV-IDS | NORMALIZATION | EXPERIMENTS (exp_name:label,...)
+# Format: NAME | ENV-IDS | NORMALIZATION | METRIC | EXPERIMENTS (exp_name:label,...)
 #
 # `exp_name` is the top-level config key (= the algorithm config's name), which
 # is what rlops matches on via `cen=exp_name`. `atari` normalization uses
 # openrlbenchmark's built-in human/random table, keyed `Jamesbond-v5` — the
 # reason `env_id` carries no `ALE/` prefix.
+#
+# The metric is `charts/eval_episodic_return`, not the canonical
+# `charts/episodic_return`, so a figure always compares the *same measurement*
+# across algorithms. `canonical_source` is a per-experiment decision — legitimate
+# either way (see configs/evaluation/) — but it means the canonical key is eval
+# rollouts for BBF and DreamerV3 and the training stream for ppo/ale. Plotting
+# those together would put a stochastic-policy curve next to two
+# deterministic-protocol ones. On DMC the two keys are identical, since every
+# experiment there is already eval-canonical.
+#
 # NOT `GROUPS`: bash reserves that name for the caller's group IDs and silently
 # ignores the assignment, so every field would parse as a gid.
 FIG_GROUPS=(
-  "atari100k|Jamesbond-v5|atari|dreamer:DreamerV3,bbf:BBF,ppo:PPO"
-  "dmc|cheetah-run|maxmin|dreamer:DreamerV3,tdmpc2:TD-MPC2,ppo:PPO"
+  "atari100k|Jamesbond-v5|atari|charts/eval_episodic_return|dreamer:DreamerV3,bbf:BBF,ppo:PPO"
+  "dmc|cheetah-run|maxmin|charts/eval_episodic_return|dreamer:DreamerV3,tdmpc2:TD-MPC2,ppo:PPO"
 )
 
 status=0
 for spec in "${FIG_GROUPS[@]}"; do
   name="${spec%%|*}";      rest="${spec#*|}"
   env_ids="${rest%%|*}";   rest="${rest#*|}"
-  norm="${rest%%|*}";      experiments="${rest#*|}"
+  norm="${rest%%|*}";      rest="${rest#*|}"
+  metric="${rest%%|*}";    experiments="${rest#*|}"
+  [[ -n "$METRIC" ]] && metric="$METRIC"
 
   [[ -n "$GROUP" && "$GROUP" != "$name" ]] && continue
 
@@ -97,9 +118,9 @@ for spec in "${FIG_GROUPS[@]}"; do
     args+=("${pair%%:*}?tag=${TAG}&cl=${pair#*:}")
   done
 
-  echo "=== $name  (env_ids=$env_ids  norm=$norm  tag=$TAG)"
+  echo "=== $name  (env_ids=$env_ids  norm=$norm  metric=$metric  tag=$TAG)"
   "$VENV/bin/python" -m openrlbenchmark.rlops \
-    --filters "?we=${ENTITY}&wpn=${PROJECT}&ceik=env_id&cen=exp_name&metric=charts/episodic_return" \
+    --filters "?we=${ENTITY}&wpn=${PROJECT}&ceik=env_id&cen=exp_name&metric=${metric}" \
       "${args[@]}" \
     --env-ids $env_ids \
     --no-check-empty-runs \
@@ -116,4 +137,25 @@ done
 
 echo
 echo "figures written to ${OUT_DIR}/"
+
+# ------------------------------------------------------------------- publish
+# `logs/` is gitignored, so the README's figures need a copy that is not. Only
+# the PNGs and the score tables move: rlops also emits PDF and SVG of every
+# panel, which are ~40x the size and are not what a README renders.
+if [[ $PUBLISH -eq 1 ]]; then
+  # `set -f` above keeps the rlops filter strings intact; the copy below is the
+  # one place that actually wants globbing.
+  set +f
+  mkdir -p "$PUBLISH_DIR"
+  for spec in "${FIG_GROUPS[@]}"; do
+    name="${spec%%|*}"
+    [[ -n "$GROUP" && "$GROUP" != "$name" ]] && continue
+    cp "$OUT_DIR/${name}"*.png "$PUBLISH_DIR/" || status=1
+    cp "$OUT_DIR/${name}.md" "$PUBLISH_DIR/" || status=1
+  done
+  published=$(ls "$PUBLISH_DIR"/*.png 2>/dev/null | wc -l)
+  set -f
+  echo "published ${published} PNGs + tables to ${PUBLISH_DIR}/"
+fi
+
 exit $status
