@@ -12,7 +12,7 @@ defaults:
   - _self_
 
 environment:
-  task: Hero
+  task: Jamesbond
   # DreamerV3 preprocessing differs from the shared Atari-100k stack: 64x64
   # RGB frames (no grayscale, no frame stack — the RSSM carries history) and
   # `is_first` / `image` key names.
@@ -58,19 +58,11 @@ algorithm:
 #
 # `policy: explore` because official DreamerV3 has no argmax path: it acts from
 # the sampled actor everywhere, and that is what its published scores measure.
-#
-# `summary_max_step` reproduces upstream's reporting rule: training runs 10%
-# past the Atari-100k budget, but the headline number is cut off at 100k agent
-# steps (= 400k game frames).
 evaluation:
   policy: explore
-  summary_max_step: 100_000
 
 run_name: dreamer_${environment.task}_atari100k_${model_size}_${now:%Y-%m-%d_%H-%M-%S}
 
 trainer:
-  # 110k agent steps = 440k game frames; official DreamerV3 trains 10% past the
-  # 100k budget. `evaluation.summary_max_step` above keeps the headline number
-  # cut off at 100k agent steps.
-  total_frames: 110_000
+  total_frames: 100_000
   log_every_n_steps: 1_000

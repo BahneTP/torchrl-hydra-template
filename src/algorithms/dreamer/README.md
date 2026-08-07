@@ -195,17 +195,19 @@ frames; `0` disables either. Both are automatically skipped on stacks with no
 image observation — on DMC Proprio the decoder has no CNN head, so there is
 nothing to reconstruct and nothing to record.
 
-Following the official DreamerV3 code (`run.steps: 1.1e5`), the Atari100k
-experiment trains for 110k agent steps — 10 % past the benchmark budget of 100k
-steps (400k game frames) stated in the paper. The headline number stays
-paper-comparable via `evaluation.summary_max_step: 100_000`, which drops
-episodes completed past the budget before averaging the last
-`evaluation.summary_window` (100) episodes into `eval/final_return_mean`.
-Episodes past the budget still appear on the `charts/episodic_return` curve.
+The official DreamerV3 code trains 10 % past the Atari100k budget
+(`run.steps: 1.1e5`) and relies on `summary_max_step` to cut the headline
+number back to 100k agent steps. This template's evaluation stream is
+already the canonical source (`atari100k_native`, inherited
+`canonical_source: eval`), so the Atari100k experiment trains for exactly
+100k agent steps (400k game frames) and reports `eval/final_return_mean`
+straight off the last `evaluation.summary_window` (100) eval episodes — no
+`summary_max_step` trimming needed.
 
-Older runs in the table below predate this protocol and were scored from
-`eval/score_mean_last10pct`; `scripts/update_algo_results.py` still reads that
-key but labels it `legacy` in the Notes column. Replace them with new runs.
+Older runs in the table below predate this protocol (110k agent steps,
+`eval/score_mean_last10pct`); `scripts/update_algo_results.py` still reads
+that key but labels it `legacy` in the Notes column. Replace them with new
+runs.
 
 **Live W&B table (canonical):** [LatentLab/torchrl-hydra-template — Table](https://wandb.ai/LatentLab/torchrl-hydra-template/table)
 

@@ -19,7 +19,7 @@ Implemented experiments:
 | PPO       | DMC cheetah-run | `experiment=ppo/dmc`         |
 | PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`      |
-| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DreamerV3 | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
 | DreamerV3 | DMC cheetah-run<br>(proprio) | `experiment=dreamer/dmc` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
 | BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
@@ -646,7 +646,7 @@ python src/train.py experiment=ppo/dmc             # PPO on DMC cheetah-run (1M 
 python src/train.py experiment=ppo/ale             # PPO on Atari-100k JamesBond (100k steps, GPU)
 python src/train.py experiment=tdmpc2/dmc          # TD-MPC2 model-based control (1M frames, GPU)
 python src/train.py experiment=rainbow/atari100k   # DER on Atari-100k Jamesbond (100k frames, GPU)
-python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Hero (GPU)
+python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Jamesbond (GPU)
 python src/train.py experiment=dreamer/dmc         # DreamerV3 on DMC cheetah-run, proprio (GPU)
 python src/train.py experiment=bbf/atari100k       # BBF on Atari-100k Jamesbond (RR2, GPU)
 python src/train.py experiment=bbf/atari100k_rr8   # BBF flagship RR8 (~4x compute)
