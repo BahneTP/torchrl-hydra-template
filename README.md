@@ -43,44 +43,22 @@ Four derived rules:
    comparable across algorithms, and directly consumable by
    [openrlbenchmark](https://github.com/openrlbenchmark/openrlbenchmark).
 
-**Implemented experiments:**
+## Implemented algorithms
 
-| Algorithm | Environment    | Config                          |
-|-----------|----------------|---------------------------------|
-| DQN       | CartPole-v1    | `experiment=dqn/gym`            |
-| DQN       | ALE/Pong-v5    | `experiment=dqn/ale`            |
-| DDPG      | HalfCheetah-v4 | `experiment=ddpg/gym`           |
-| A2C       | HalfCheetah-v4 | `experiment=a2c/gym`            |
-| PPO       | DMC cheetah-run | `experiment=ppo/dmc`           |
-| PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
-| TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`        |
-| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
-| DreamerV3 | DMC cheetah-run<br>(proprio) | `experiment=dreamer/dmc` |
-| DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
-| BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
 
-Every experiment names a *benchmark*, not a task. Switch task with one override:
-`experiment=dqn/ale environment.task=Breakout`,
-`experiment=tdmpc2/dmc environment.task=walker-walk`.
+| Algorithm | Reference | Docs |
+|-----------|-----------|------|
+| DQN | Mnih et al. (2015), [*Human-level control through deep reinforcement learning*](https://www.nature.com/articles/nature14236) | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
+| DDPG | Lillicrap et al. (2016), [*Continuous control with deep reinforcement learning*](https://arxiv.org/abs/1509.02971) | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
+| A2C | Mnih et al. (2016), [*Asynchronous Methods for Deep Reinforcement Learning*](https://arxiv.org/abs/1602.01783) | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
+| PPO | Schulman et al. (2017), [*Proximal Policy Optimization Algorithms*](https://arxiv.org/abs/1707.06347) | [`src/algorithms/ppo/README.md`](src/algorithms/ppo/README.md) |
+| TD-MPC2 | Hansen, Su & Wang (2024), [*TD-MPC2: Scalable, Robust World Models for Continuous Control*](https://arxiv.org/abs/2310.16828) | [`src/algorithms/tdmpc2/README.md`](src/algorithms/tdmpc2/README.md) |
+| DreamerV3 | Hafner et al. (2025), [*Mastering Diverse Control Tasks through World Models*](https://www.nature.com/articles/s41586-025-08744-2) | [`src/algorithms/dreamer/README.md`](src/algorithms/dreamer/README.md) |
+| Rainbow / DER | Hessel et al. (2018), [*Rainbow: Combining Improvements in Deep Reinforcement Learning*](https://arxiv.org/abs/1710.02298); van Hasselt et al. (2019), [*When to Use Parametric Models in Reinforcement Learning?*](https://arxiv.org/abs/1906.05243) (DER) | [`src/algorithms/rainbow/README.md`](src/algorithms/rainbow/README.md) |
+| BBF | Schwarzer et al. (2023), [*Bigger, Better, Faster: Human-level Atari with human-level efficiency*](https://arxiv.org/abs/2305.19452) | [`src/algorithms/bbf/README.md`](src/algorithms/bbf/README.md) |
 
-Other algorithms will follow.
-
-### Algorithm documentation
-
-Each algorithm lives in its own package with theory, pseudocode, and benchmark
-results. Experimental metrics are tracked on
+Other algorithms will follow. Experimental metrics are tracked on
 [W&B (LatentLab/torchrl-hydra-template)](https://wandb.ai/LatentLab/torchrl-hydra-template/table).
-
-| Algorithm | Docs |
-|-----------|------|
-| DQN | [`src/algorithms/dqn/README.md`](src/algorithms/dqn/README.md) |
-| DDPG | [`src/algorithms/ddpg/README.md`](src/algorithms/ddpg/README.md) |
-| A2C | [`src/algorithms/a2c/README.md`](src/algorithms/a2c/README.md) |
-| PPO | [`src/algorithms/ppo/README.md`](src/algorithms/ppo/README.md) |
-| TD-MPC2 | [`src/algorithms/tdmpc2/README.md`](src/algorithms/tdmpc2/README.md) |
-| DreamerV3 | [`src/algorithms/dreamer/README.md`](src/algorithms/dreamer/README.md) |
-| Rainbow / DER | [`src/algorithms/rainbow/README.md`](src/algorithms/rainbow/README.md) |
-| BBF | [`src/algorithms/bbf/README.md`](src/algorithms/bbf/README.md) |
 
 After new benchmark training runs, tag them with `template` on W&B and refresh
 the markdown tables in each algorithm README:
@@ -93,6 +71,27 @@ python scripts/update_algo_results.py --dry-run    # preview without writing
 Requires `wandb login` (or `WANDB_API_KEY`). By default the script reads finished
 runs tagged `template` from `LatentLab/torchrl-hydra-template`. Use
 `--entity`, `--project`, `--tag`, or `--algo dqn` to override scope.
+
+### Adding a new algorithm
+
+1. Create `src/algorithms/my_algo/my_algo.py` with an `__init__.py` re-export and
+   `README.md` (theory, pseudocode, W&B results). Follow the kwargs pattern
+   described in [Architecture → Algorithm hyperparameters](docs/architecture.md#algorithm-hyperparameters).
+   Use `Callable` factories for design choices (inline lambdas, `functools.partial`,
+   or small helpers).
+2. Implement `setup(make_env)`, `step(batch)`, `get_policy()`,
+   `get_explore_policy()`, `get_collector_config()`,
+   `_get_training_state()`, `_load_training_state()`.
+3. Add `configs/algorithm/my_algo.yaml` mirroring scalar defaults from `__init__`.
+   Keep it free of task specifics — no pixel networks, no per-benchmark budgets.
+   If a network has more than one variant, give it a config group under
+   `configs/algorithm/network/` or `configs/algorithm/policy/`.
+4. Add `configs/experiment/my_algo/<benchmark>.yaml` composing algorithm +
+   environment + trainer, and put the task-dependent overrides there. Name it
+   after the benchmark (`gym`, `dmc`, `ale`, `atari100k`), not the task — the
+   task is an override.
+5. Add a smoke test in `tests/test_smoke.py`.
+6. Update `README.md` and `AGENTS.md`.
 
 ## Main technologies
 
@@ -134,563 +133,38 @@ python src/train.py experiment=dqn/ale
 ```
 train.py  ->  Trainer(algorithm, environment)
                 ├── owns: device, env lifecycle, Collector, eval, callbacks, checkpoints
-                │         (defaults: checkpoints/last.pt at train end, then a final
-                │          eval of evaluation.final_num_episodes episodes)
                 ├── logs: every metric row against global_step (agent steps)
                 └── calls: algorithm.step(batch) -> metrics
 
-Evaluation   ->  the measurement protocol (configs/evaluation/<benchmark>.yaml)
-               ├── eval_environment    — env stack to measure on (null = reuse train)
-               ├── every_n_steps       — periodic eval cadence (0 = final only)
-               ├── num_episodes / final_num_episodes
-               ├── policy              — eval | explore
-               └── canonical_source    — train | eval, feeds charts/episodic_return
-
 Algorithm    ->  owns: network, replay buffer, loss, optimiser, exploration,
                        collector config (frames_per_batch, init_random_frames, ...)
-               ├── setup(make_env)        — read env specs, build everything
-               ├── step(batch)            — anneal eps, store, sample, update
-               ├── get_policy()           — greedy policy (eval)
-               ├── get_explore_policy()   — eps-greedy policy (collection)
-               └── get_collector_config() — frames_per_batch + init_random_frames
-
-Environment  ->  factory: env name + transforms list
-               └── make_env(num_envs, device) -> TransformedEnv
+Environment  ->  factory: env name + transforms list -> make_env(num_envs, device)
+Evaluation   ->  the measurement protocol: eval env stack, cadence, episode count
 ```
 
-### Algorithm
-
-The `BaseAlgorithm` API is small:
-
-| Method                    | Purpose                                                           |
-|---------------------------|-------------------------------------------------------------------|
-| `setup(make_env)`         | Build network, replay buffer, loss, optimiser. Read env specs by calling `make_env()`. |
-| `step(batch)`             | Process one batch and return metrics. Where the learning happens. |
-| `get_policy()`            | Greedy policy used by `trainer.evaluate()`.                       |
-| `get_explore_policy()`    | Exploration policy used by the data collector.                    |
-| `get_collector_config()`  | Tells the trainer how to size the `Collector`.                    |
-
-`step()` is intentionally unconstrained — the algorithm decides what to do with the
-batch. For DQN that means: anneal epsilon, store, skip during warm-up, otherwise
-loop `num_updates` of (sample → loss → backward → optimiser → target update).
-
-### Algorithm hyperparameters
-
-Hyperparameters live as **explicit keyword arguments on `__init__`**, not in a
-config dataclass:
-
-```python
-class DQNAlgorithm(BaseAlgorithm):
-    def __init__(
-        self,
-        device: torch.device | None = None,
-        *,
-        replay_buffer: Callable[[], ReplayBuffer] = default_replay_buffer,
-        network: Callable[[tuple[int, ...], int], nn.Module] = default_network,
-        lr: float = 2.5e-4,
-        gamma: float = 0.99,
-        batch_size: int = 128,
-        max_grad_norm: float = 10.0,
-        eps_start: float = 1.0,
-        eps_end: float = 0.05,
-        annealing_frames: int = 250_000,
-        frames_per_batch: int = 1_000,
-        init_random_frames: int = 10_000,
-        num_updates: int = 100,
-        hard_update_freq: int = 50,
-        ...
-    ): ...
-```
-
-This buys three things:
-
-1. **Typed defaults** — every hyperparameter has an explicit Python default so the
-   algorithm is runnable without any YAML.
-2. **Inline documentation** — IDE hover shows you the parameter and its default.
-3. **Discoverability** — opening `src/algorithms/dqn/dqn.py` shows every knob without YAML lookups.
-
-`replay_buffer` and `network` are `Callable` factories rather than scalars because
-they encode design decisions (which storage backend, what MLP shape). Their defaults
-live in `src/algorithms/dqn/dqn.py` as constructor kwargs; in YAML they are
-`_partial_` blocks that `train.py` turns into real callables:
-
-```python
-algorithm = instantiate(cfg.algorithm, device=None)   # recursive: _partial_ -> callable
-```
-
-Networks that have more than one variant live in their own config group, so a
-swap replaces the whole node. Hydra *merges* dicts, so patching only
-`network._target_` would leave the previous option's kwargs behind — silently,
-when the new factory happens to accept them:
-
-```shell
-python src/train.py experiment=dqn/gym algorithm/network=nature_dqn
-python src/train.py experiment=ppo/dmc algorithm/policy=nature_cnn_categorical
-```
-
-### Environment
-
-Just an env name plus an explicit transforms list:
-
-```yaml
-# configs/environment/gym.yaml
-task: CartPole-v1        # the single override axis
-name: ${environment.task}
-transforms:
-  - _target_: torchrl.envs.transforms.StepCounter
-```
-
-Every environment config exposes `task`, so switching task never means editing
-YAML: `environment.task=Acrobot-v1`.
-
-For envs that need extra `GymEnv` constructor arguments (e.g. `frame_skip`,
-`from_pixels` for pixel-based Atari), pass them via `gym_kwargs`, and pin the
-gym backend with `gym_backend`:
-
-```yaml
-# configs/environment/ale.yaml
-task: Pong
-name: ALE/${environment.task}-v5
-gym_backend: gymnasium
-gym_kwargs:
-  frame_skip: 4
-  from_pixels: true
-  pixels_only: false
-  categorical_action_encoding: true
-transforms:
-  - _target_: torchrl.envs.NoopResetEnv
-    noops: 30
-    random: true
-  # ...
-```
-
-`make_env` in `src/environments/factory.py` instantiates each transform fresh per
-call (so stateful transforms like `CatFrames` get independent state), composes
-them on top of `GymEnv(name, **gym_kwargs)`, and wraps in `ParallelEnv` when
-`num_envs > 1`.
-
-Backends supported: **gymnasium** (default) and **dm_control**. For DeepMind
-Control Suite tasks set `backend: dm_control` and give a `<domain>-<task>` id as
-`task`; the factory splits it on the first hyphen (dm_control uses underscores
-inside its own names, so this is unambiguous), builds a
-`torchrl.envs.DMControlEnv`, and defaults `MUJOCO_GL=disabled` (headless, no
-rendering) unless you set it yourself:
-
-```yaml
-# configs/environment/dmc.yaml
-backend: dm_control
-task: cheetah-run
-transforms:
-  - _target_: torchrl.envs.transforms.FrameSkipTransform   # action repeat 2
-    frame_skip: 2
-  - _target_: torchrl.envs.transforms.CatTensors            # flatten obs dict
-    in_keys: [position, velocity]
-    out_key: observation
-  # ...
-```
-
-#### Evaluation protocol
-
-Evaluation is its own config group. One override selects both the eval env
-stack and the protocol:
-
-```yaml
-# configs/experiment/dqn/ale.yaml
-defaults:
-  - override /environment: ale
-  - override /evaluation: ale       # pulls in ale_eval + cadence + episode count
-```
-
-```yaml
-# configs/evaluation/atari100k.yaml
-defaults:
-  - none                                              # the base schema
-  - override /environment@eval_environment: atari100k_eval
-  - _self_
-
-every_n_steps: 10_000    # periodic eval cadence in agent steps; 0 = final only
-num_episodes: 10         # episodes per periodic eval point
-final_num_episodes: 100  # official Atari-100k protocol
-policy: eval             # eval | explore
-canonical_source: eval   # which stream feeds charts/episodic_return
-```
-
-Shipped protocols: `none` (training stream only), `gym`, `ale`, `atari100k`,
-`atari100k_native`, `dmc`. Any scalar is overridable — drop back to a single
-final number with `evaluation.every_n_steps=0`.
-
-Algorithms compared on the same benchmark select the same protocol, so their
-curves are read off one axis: the three Atari-100k experiments all evaluate
-every 10k steps and finish with the official 100 episodes, and the three DMC
-experiments all evaluate every 10k steps on the deterministic policy.
-`atari100k_native` is `atari100k` with `eval_environment` left `null` — the eval
-env is a fresh instance of the experiment's own training stack. DreamerV3 uses
-it because its 64x64 RGB stack cannot be served by the shared grayscale,
-frame-stacked `atari100k_eval`, and does not need to be: that stack has no
-episodic-life truncation and no reward clipping, so it already measures true
-game scores.
-
-Recurrent policies are safe to evaluate: the rollout advances with
-`env.step_mdp`, the same transition the collector uses, so policy state carried
-at the root of the tensordict (DreamerV3's RSSM) survives across steps.
-
-The `_eval` env configs interpolate `name: ALE/${environment.task}-v5` — an
-*absolute* reference, so composed under the `eval_environment` package they read
-the train env's task. One `environment.task=Breakout` moves both envs.
-
-`canonical_source` exists because the training stream is not always a true
-score. On `atari100k`, `EpisodicLifeEnv` sets `terminated=True` at life loss, so
-`RewardSum` resets there and a "training episode" is a life-long fragment —
-those benchmarks measure from eval rollouts instead. On `ale`, torchrl's
-`EndOfLifeTransform` deliberately does *not* set `done`, and `SignTransform`
-sits after `RewardSum`, so training episodes already are unclipped game scores.
-
-#### Stages
-
-`train:` and `eval:` are top-level flags:
-
-```shell
-python src/train.py experiment=dqn/gym eval=false     # skip the final evaluation
-python src/eval.py  experiment=dqn/gym checkpoint.resume_from=logs/.../last.pt
-```
-
-`src/eval.py` logs to W&B like training does. By default it creates a separate
-run tagged `eval`; add `logger.0.resume=must` to append the results to the
-training run that produced the checkpoint (it reads the run id from the
-`wandb_run.json` sidecar written next to the checkpoint).
-
-### Benchmarking with openrlbenchmark
-
-Runs are logged in a layout [openrlbenchmark](https://github.com/openrlbenchmark/openrlbenchmark)
-can consume directly, so results can be compared against CleanRL, baselines,
-Tianshou and friends without post-processing.
-
-| W&B key | Meaning |
-|---|---|
-| `charts/episodic_return` / `_length` | canonical return, one row per episode (source per `canonical_source`) |
-| `charts/train_episodic_return` / `_length` | always the training stream |
-| `charts/eval_episodic_return` / `_length` | always eval rollouts |
-| `eval/return_mean`, `_std`, `_min`, `_max`, `eval/episodes` | one row per eval point |
-| `eval/final_return_mean` / `_std` | run summary: last `summary_window` canonical episodes |
-| `train/*` | every algorithm-side metric: losses, exploration, schedules, update counts |
-| `global_step` | **agent steps** (post frame-skip); on every row |
-| `frames` | `global_step * environment.action_repeat`; on every row |
-
-Run config carries top-level `env_id`, `exp_name` and `seed`. `env_id` omits the
-`ALE/` prefix (`Pong-v5`), because openrlbenchmark's human-normalised-score
-table is keyed that way and `ALE/Pong-v5` raises `KeyError`.
-
-Three seeds, then compare:
-
-```shell
-python src/train.py -m experiment=dqn/ale trainer.seed=1,2,3
-
-python -m openrlbenchmark.rlops --scan-history \
-  --filters '?we=<entity>&wpn=torchrl-hydra-template&ceik=env_id&cen=exp_name&metric=charts/episodic_return' \
-    'dqn?seed=1&seed=2&seed=3&cl=DQN (template)' \
-  --env-ids Pong-v5 --output-filename compare
-```
-
-Three caveats worth knowing: openrlbenchmark skips runs that are not `finished`;
-`--rliable` truncates every cell to the smallest seed count in the comparison,
-so keep seed counts uniform across games; and a run that *crashed* still reports
-as `finished`, because the trainer closes its logger in a `finally`. Check the
-per-experiment runtimes `rlops` prints — a truncated run shows up there long
-before it shows up in the curve.
-
-`scripts/make_figures.sh` wraps this for the committed comparison groups.
-
-#### Multi-GPU benchmark sweeps
-
-`scripts/run_benchmarks.sh` runs a fixed cross-algorithm sweep — PPO, BBF and
-DreamerV3 on Atari-100k Jamesbond, plus PPO, TD-MPC2 and DreamerV3 on DMC
-cheetah-run — at three seeds each, load-balanced across GPUs.
-
-```shell
-./scripts/run_benchmarks.sh --dry-run           # print the 18 commands
-./scripts/run_benchmarks.sh --smoke             # tiny budgets; validates every spec
-./scripts/run_benchmarks.sh --gpus 2,3          # the real sweep
-./scripts/run_benchmarks.sh --only bbf,tdmpc2   # subset by job name
-./scripts/run_benchmarks.sh --tag template-v2   # own W&B tag for this sweep
-```
-
-Use `--tag` whenever the evaluation protocol has changed since the last sweep.
-W&B tags are the only thing separating one sweep from the next — old runs keep
-their tag forever and still report as `finished`, and `rlops` cannot tell two
-protocols apart. A tagged sweep plus `make_figures.sh --tag <name>` compares
-only what belongs together.
-
-Workers pull from a shared queue instead of taking a fixed slice, because the
-jobs differ in cost by more than an order of magnitude — a static split would
-leave a GPU idle for hours. Each finished run drops a marker in
-`logs/benchmarks/done/`, so the sweep is interruptible and resumable. Runs are
-tagged `template` for `scripts/update_algo_results.py`.
-
-The job table carries **no** protocol overrides: every experiment's committed
-`evaluation` config already reports the same thing as the others in its
-comparison group. Anything a job needs beyond that belongs in its experiment
-file, not in the table.
-
-#### Figures
-
-`scripts/make_figures.sh` wraps openrlbenchmark's own `rlops` CLI — comparison
-curves plus rliable aggregates, performance profiles and sample-efficiency
-plots, with no plotting code of ours. It needs no adapters because the logging
-contract above is what `rlops` expects; the first run builds an isolated
-`.venv-openrlbenchmark` (openrlbenchmark's pins are kept away from the training
-env).
-
-```shell
-./scripts/make_figures.sh                              # every group, W&B tag `template`
-./scripts/make_figures.sh --group atari100k            # one comparison group
-./scripts/make_figures.sh --tag template-v2 --publish  # regenerate docs/figures/
-```
-
-Figures are plotted on `charts/eval_episodic_return`, not the canonical
-`charts/episodic_return`, so a comparison always shows the *same measurement*
-for every algorithm in it. `canonical_source` is a per-experiment decision and
-legitimate either way, but it means the canonical key is eval rollouts for BBF
-and DreamerV3 and the training stream for `ppo/ale` — a stochastic-policy curve
-next to two deterministic-protocol ones. On DMC the two keys are identical.
-
-Read the script's header before trusting a plot. `rlops` averages the last 100
-logged points of whatever metric it is given, from whatever stream produced it,
-so runs recorded under different evaluation protocols are silently incomparable
-— and a run whose episodes all sit at one step renders as a flat line, because
-the single point is back-filled across the axis. Use `--tag` to keep one
-sweep's runs together (see [Multi-GPU benchmark sweeps](#multi-gpu-benchmark-sweeps)).
-
-### Benchmark results
-
-Three seeds per algorithm, produced by `./scripts/run_benchmarks.sh --gpus 2,3
---tag template-v2` and plotted with `./scripts/make_figures.sh --tag
-template-v2 --publish`. Shaded bands are ±1 std over seeds; every number is the
-mean of the last 100 logged evaluation episodes.
-
-**Read these as a template smoke test, not as a benchmark claim.** Each suite
-here is a *single* task, so rliable's median / IQM / mean necessarily coincide
-(visible below) and the performance profile is close to degenerate — those
-panels only start carrying information across many tasks. Three seeds on one
-task is also far too few to separate implementations that land close together.
-
-#### Atari-100k — Jamesbond
-
-|              | DreamerV3      | BBF             | PPO           |
-|:-------------|:---------------|:----------------|:--------------|
-| Jamesbond-v5 | 385.33 ± 38.35 | 825.83 ± 309.25 | 25.67 ± 19.15 |
-
-![Atari-100k Jamesbond return](docs/figures/atari100k.png)
-
-100k agent steps (400k game frames), 10-episode evaluations every 10k steps.
-The ordering is the expected one — BBF, the sample-efficiency specialist,
-clears DreamerV3, while PPO sits at random play (29.0 on this game) at a budget
-it was never designed for. BBF's ±309 spread across three seeds is not noise in
-the plot but the task: the official RR2 release reports mean ≈ 1125 over 14
-seeds with min 573 and max 1490 (see
-[BBF's README](src/algorithms/bbf/README.md)), so our three seeds
-(1251 / 702 / 524) sit inside that spread with the mean pulled low. The spike
-near 30k is the same effect at a 10-episode measurement — which is why the
-protocol also takes 100 episodes at the end.
-
-![Atari-100k aggregate metrics](docs/figures/atari100k_aggregate.png)
-![Atari-100k performance profile](docs/figures/atari100k_performance_profile.png)
-![Atari-100k sample efficiency](docs/figures/atari100k_sample_efficiency.png)
-![Atari-100k sample and walltime efficiency](docs/figures/atari100k_sample_walltime_efficiency.png)
-
-Scores are human-normalised with openrlbenchmark's Atari table (Jamesbond:
-random 29.0, human 302.8), so 1.0 is human level.
-
-![Atari-100k return vs walltime](docs/figures/atari100k-time.png)
-
-The same curves against wall-clock: at this budget BBF costs ~108 minutes per
-seed on one GPU and DreamerV3 ~95, against PPO's ~5.
-
-#### DMC Proprio — cheetah-run
-
-|             | DreamerV3      | TD-MPC2       | PPO            |
-|:------------|:---------------|:--------------|:---------------|
-| cheetah-run | 775.60 ± 65.02 | 907.27 ± 9.31 | 463.07 ± 93.30 |
+Full component API, environment/evaluation configs, trainer internals, and the
+Hydra config layout are in [docs/architecture.md](docs/architecture.md).
+
+## Evaluation
+
+Evaluation is its own config group, decoupled from the algorithm: eval env
+stack, cadence, episode count, policy mode, and which stream is canonical are
+all protocol, never learning knobs. Runs log in a layout
+[openrlbenchmark](https://github.com/openrlbenchmark/openrlbenchmark) can
+consume directly, so algorithms are comparable on one axis. See
+[docs/evaluation.md](docs/evaluation.md) for the full protocol, the logging
+contract, and benchmark results.
 
 ![DMC cheetah-run return](docs/figures/dmc.png)
 
-1M agent steps on state observations, 10-episode evaluations every 10k steps.
-TD-MPC2 reaches ~900 within 200k steps and is the tightest across seeds
-(±9.31) — above the 866.9 ± 11.1 this port measures from the *official*
-`cheetah-run-1.pt` checkpoint (see
-[TD-MPC2's README](src/algorithms/tdmpc2/README.md)), which is the closest
-thing here to a ground-truth reference. DreamerV3 is slower but still climbing
-at 1M; PPO plateaus around 460. All three run the same `environment: dmc`
-stack, so this is a like-for-like comparison.
+## Documentation
 
-![DMC aggregate metrics](docs/figures/dmc_aggregate.png)
-![DMC performance profile](docs/figures/dmc_performance_profile.png)
-![DMC sample efficiency](docs/figures/dmc_sample_efficiency.png)
-![DMC sample and walltime efficiency](docs/figures/dmc_sample_walltime_efficiency.png)
-
-Scores here are min-max normalised over the runs in the comparison (no human
-baseline exists for DMC), so 1.0 is the best run in the plot, not an absolute
-ceiling.
-
-![DMC return vs walltime](docs/figures/dmc-time.png)
-
-Against wall-clock the ranking shifts: TD-MPC2's ~900 costs ~219 minutes per
-seed (MPPI planning dominates), DreamerV3 reaches ~775 in ~124, and PPO's ~460
-takes ~49.
-
-### Trainer
-
-`StepTrainer` creates a `torchrl.collectors.Collector` from the algorithm's
-collector config and the trainer-level `total_frames`, then iterates:
-
-```python
-for batch in self.collector:
-    self._step += batch.numel()
-    metrics = self.algorithm.step(batch)
-    ep_rewards, ep_lengths, _ = _batch_metrics(batch)
-    self.log_episodes(ep_rewards, ep_lengths, self._step, source="train")
-    if self._should_log(...):
-        self.log_metrics(row, self._step)
-        fire_callbacks(ON_STEP_END, self.callbacks, metrics=row, step=self._step)
-    if self._should_eval(...):
-        self.run_evaluation(evaluation.num_episodes, step=self._step)
-```
-
-`BaseTrainer` owns:
-- **Device** — resolves `accelerator` + `devices` to `torch.device`.
-- **Env lifecycle** — creates train/eval envs via `Environment.make_env()`.
-- **Eval** — `run_evaluation()` / `run_final_evaluation()` follow the
-  `configs/evaluation/` protocol; the eval env is built once and reused, and
-  module `.training` flags are restored around every rollout.
-- **Metrics** — `log_metrics()` / `log_episodes()` inject `global_step` and
-  `frames` into every row.
-- **Callbacks** — fires `ON_TRAIN_START`, `ON_METRICS`, `ON_STEP_END`, `ON_TRAIN_END`.
-- **Checkpoints** — orchestrates save/load of algorithm state.
-
-Trainer config knobs (`total_frames`, `seed`, `accelerator`, `devices`,
-`num_envs`, `log_every_n_steps`) only control how training runs, never what is
-learned.
-
-## Configuration
-
-```
-configs/
-├── train.yaml              <- top-level defaults (train/eval flags, env_id,
-│                              exp_name, seed, run_name, checkpoint)
-├── eval.yaml               <- evaluation entry point defaults
-├── trainer/
-│   ├── default.yaml        <- the loop: seed, total_frames, num_envs, logging
-│   ├── cpu.yaml
-│   ├── gpu.yaml            <- accelerator: gpu (set devices=[N] on the CLI)
-│   └── eval.yaml           <- total_frames: 0 (used by eval.yaml)
-├── algorithm/              <- one config per algorithm class; no env specifics
-│   ├── dqn.yaml            <- DQN HPs
-│   ├── ddpg.yaml           <- DDPG HPs
-│   ├── a2c.yaml            <- A2C HPs
-│   ├── ppo.yaml            <- PPO HPs (cleanRL continuous-action defaults)
-│   ├── rainbow.yaml        <- Rainbow HPs
-│   ├── tdmpc2.yaml         <- TD-MPC2 HPs (model_size=5)
-│   ├── dreamer.yaml        <- DreamerV3 (+ dreamerpro.yaml, r2dreamer.yaml)
-│   ├── network/            <- swappable Q-network (DQN)
-│   │   ├── mlp_q.yaml      <- state obs
-│   │   └── nature_dqn.yaml <- pixel obs
-│   ├── policy/             <- swappable actor/critic/trunk (PPO)
-│   │   ├── mlp_normal.yaml <- continuous control, state obs
-│   │   └── nature_cnn_categorical.yaml  <- discrete control, pixel obs
-│   └── dreamer/            <- model-size presets (12m ... 400m)
-├── environment/            <- one config per benchmark; pick task with `task`
-│   ├── gym.yaml            <- gymnasium state obs (classic control + MuJoCo)
-│   ├── dmc.yaml            <- dm_control, task: <domain>-<task>
-│   ├── ale.yaml            <- Atari, standard protocol (train)
-│   ├── ale_eval.yaml       <- same without EndOfLife / Sign / VecNorm
-│   ├── atari100k.yaml      <- Atari-100k protocol (train)
-│   └── atari100k_eval.yaml <- same without EpisodicLife / Sign
-├── evaluation/             <- measurement protocol; also selects the eval env
-│   ├── none.yaml           <- base schema; training stream only, no rollouts
-│   ├── gym.yaml            <- final eval only, canonical_source: train
-│   ├── ale.yaml            <- ale_eval stack, canonical_source: train
-│   ├── atari100k.yaml      <- every 10k + 100 final episodes, canonical_source: eval
-│   ├── atari100k_native.yaml <- same protocol on the experiment's own stack
-│   └── dmc.yaml            <- periodic every 10k (TD-MPC2 upstream cadence)
-├── logger/
-│   ├── wandb.yaml
-│   └── tensorboard.yaml
-├── paths/default.yaml
-└── experiment/             <- algorithm x benchmark, plus task/budget overrides
-    ├── dqn/{gym,ale}.yaml
-    ├── ddpg/gym.yaml
-    ├── a2c/gym.yaml
-    ├── ppo/{dmc,ale}.yaml
-    ├── rainbow/atari100k.yaml   <- the Data-Efficient Rainbow preset
-    ├── tdmpc2/dmc.yaml
-    ├── dreamer/{atari100k,dmc}.yaml
-    └── bbf/{atari100k,atari100k_rr8}.yaml
-```
-
-Anything that depends on the *task* — pixel networks, replay capacity,
-exploration schedules, episode length, training budget — lives in the
-experiment. `configs/algorithm/*.yaml` describes the algorithm only.
-
-### Override hierarchy
-
-```
-Python __init__ defaults  <-  configs/algorithm/dqn.yaml  <-  experiment config  <-  CLI overrides
-```
-
-```shell
-python src/train.py experiment=dqn/gym algorithm.lr=1e-3 trainer.total_frames=200_000
-```
-
-## Logging
-
-Defaults: plain CLI runs log to **tensorboard**; runs launched via
-`experiment=...` log to **wandb**. Override with any combination of `wandb` and
-`tensorboard`:
-
-```shell
-python src/train.py experiment=dqn/gym 'logger=[wandb,tensorboard]'
-python src/train.py experiment=dqn/gym 'logger=[tensorboard]'
-python src/train.py experiment=dqn/gym logger=[]
-```
-
-## Callbacks
-
-The trainer fires events at key points:
-
-| Event             | When                              | Receives                                  |
-|-------------------|-----------------------------------|-------------------------------------------|
-| `ON_TRAIN_START`  | Before the loop                   | `state: {"cfg": cfg}`                     |
-| `ON_METRICS`      | Per metric row (incl. per episode)| `metrics: dict, step: int`                |
-| `ON_STEP_END`     | After each logged step            | `metrics: dict, step: int`                |
-| `ON_TRAIN_END`    | After the loop                    | `state: {"cfg": cfg, "summary": dict}`    |
-
-`ON_METRICS` and `ON_STEP_END` are separate on purpose. `ON_METRICS` means "one
-row of metrics at this x position" and fires once per completed episode —
-loggers implement it. `ON_STEP_END` means "the loop crossed a log boundary" and
-fires only there — the progress bar and checkpointer implement it, and would
-misbehave if driven per episode.
-
-Built-in callbacks: `ProgressCallback` (tqdm bar), `CheckpointCallback`,
-`WandBLogger`, `TensorBoardLogger`.
-
-## Adding a new algorithm
-
-1. Create `src/algorithms/my_algo/my_algo.py` with an `__init__.py` re-export and
-   `README.md` (theory, pseudocode, W&B results). Follow the kwargs pattern above.
-   Use `Callable` factories for design choices (inline lambdas, `functools.partial`,
-   or small helpers).
-2. Implement `setup(make_env)`, `step(batch)`, `get_policy()`,
-   `get_explore_policy()`, `get_collector_config()`,
-   `_get_training_state()`, `_load_training_state()`.
-3. Add `configs/algorithm/my_algo.yaml` mirroring scalar defaults from `__init__`.
-   Keep it free of task specifics — no pixel networks, no per-benchmark budgets.
-   If a network has more than one variant, give it a config group under
-   `configs/algorithm/network/` or `configs/algorithm/policy/`.
-4. Add `configs/experiment/my_algo/<benchmark>.yaml` composing algorithm +
-   environment + trainer, and put the task-dependent overrides there. Name it
-   after the benchmark (`gym`, `dmc`, `ale`, `atari100k`), not the task — the
-   task is an override.
-5. Add a smoke test in `tests/test_smoke.py`.
-6. Update `README.md` and `AGENTS.md`.
+| Doc | Covers |
+|-----|--------|
+| [docs/architecture.md](docs/architecture.md) | `BaseAlgorithm` / `Trainer` API, environment configs, Hydra config layout, logging, callbacks |
+| [docs/evaluation.md](docs/evaluation.md) | Evaluation protocol, openrlbenchmark logging contract, multi-GPU sweeps, figures, benchmark results |
+| [docs/contributing.md](docs/contributing.md) | Syncing with upstream, feeding changes back to the template |
+| [docs/acknowledgements.md](docs/acknowledgements.md) | Prior art and attribution |
 
 ## Smoke test
 
@@ -700,177 +174,3 @@ pytest tests/test_smoke.py -v
 
 Loads the experiment config, applies minimal-frame overrides, and asserts that
 one full training cycle runs without error.
-
-
-## Contribution
-
-Template improvements are welcome. If you started from
-[**Use this template**](https://github.com/raphaelschwinger/torchrl-hydra-template/generate),
-your repository has no git link to the upstream template by default — add a remote
-manually (see below).
-
-Not every change in a derived project belongs upstream. Contribute back when the
-change is **template-worthy**: a generic algorithm, trainer or callback fix,
-reusable environment config, documentation, or smoke test. Keep project-specific
-work (pretraining experiments, paper configs, custom paths) in your own repo.
-
-### Pulling template updates into your repo
-
-One-time setup:
-
-```shell
-git remote add upstream https://github.com/raphaelschwinger/torchrl-hydra-template.git
-git fetch upstream
-```
-
-How you sync depends on how you created your repo.
-
-#### Fork or clone of the template
-
-Histories are already linked — merge or rebase works out of the box:
-
-```shell
-git checkout main
-git merge upstream/main          # or: git rebase upstream/main
-# resolve conflicts in shared files (src/, configs/, tests/)
-pytest tests/test_smoke.py -v
-```
-
-#### Created via [Use this template](https://github.com/raphaelschwinger/torchrl-hydra-template/generate)
-
-GitHub starts a fresh repository with a new initial commit. The files match the
-template, but git sees **no shared history**, so `git merge upstream/main` fails
-with *refusing to merge unrelated histories*.
-
-**Recommended — one-time history reconnect.** Rebase your project-specific
-commits onto `upstream/main` so regular merges work from then on:
-
-```shell
-git remote add upstream https://github.com/raphaelschwinger/torchrl-hydra-template.git
-git fetch upstream
-
-# <initial-commit> = your repo's first commit (see git log --oneline --reverse)
-git rebase --onto upstream/main <initial-commit> main
-git push --force-with-lease origin main
-```
-
-Example: if `git log --oneline --reverse | head -1` shows `3a43db2 Initial
-commit`, run `git rebase --onto upstream/main 3a43db2 main`.
-
-After reconnecting, sync the same way as a fork:
-
-```shell
-git checkout main
-git merge upstream/main
-pytest tests/test_smoke.py -v
-```
-
-This rewrites history on `main`. Only run it once, early in the project, or
-coordinate with collaborators before force-pushing.
-
-**Without reconnecting** — pull in upstream changes selectively:
-
-```shell
-git cherry-pick <commit-sha>            # one upstream commit at a time
-
-# — or — copy changed files manually
-git diff upstream/main -- src/algorithms/dqn/dqn.py
-pytest tests/test_smoke.py -v
-```
-
-Once you diverge, conflicts are likely — resolve them only in shared template
-files.
-
-### Feeding improvements back to the template
-
-No separate fork clone is required. What matters is a **clean branch**: one
-branched from `upstream/main` that contains only template-relevant changes, not
-your full research history. You can create that branch in your existing derived
-repo using the same `upstream` remote as above.
-
-| Option | When to use |
-|--------|-------------|
-| **Pull request** | You have a focused, template-ready change |
-| **GitHub issue** | Idea, bug report, or discussion before coding |
-| **Cherry-pick / extract** | The improvement is buried in mixed commits on `main` |
-
-**Pull request workflow** (works in your existing repo):
-
-```shell
-# one-time (if not already done for sync)
-git remote add upstream https://github.com/raphaelschwinger/torchrl-hydra-template.git
-git fetch upstream
-
-# branch from upstream, not from your diverged main
-git checkout -b contribute/my-fix upstream/main
-
-# bring in your change (pick one):
-git cherry-pick <commit-sha>            # if the commit is already template-only
-# — or — copy changed files manually and commit
-
-pytest tests/test_smoke.py -v
-git push -u origin contribute/my-fix
-# open PR: your-repo/contribute/my-fix → torchrl-hydra-template/main
-```
-
-Where to push and open the PR:
-
-- **Maintainers / collaborators with write access:** push the branch directly to
-  `upstream` and open an in-repo PR — no GitHub fork needed.
-- **Everyone else:** push the branch to your repo (`origin`) and open a
-  **cross-repo PR** from `your-repo:contribute/my-fix` →
-  `torchrl-hydra-template:main`. GitHub supports this without cloning a
-  separate fork.
-- **Optional fork:** only if you prefer a dedicated template checkout; functionally
-  equivalent to the branch-from-upstream flow above.
-
-"Clean" here means **isolated diffs**, not a second repository.
-
-**PR checklist:**
-
-- Smoke test passes (`pytest tests/test_smoke.py -v`).
-- Update `README.md` and `AGENTS.md` if you add or rename algorithms or change
-  conventions (see [Adding a new algorithm](#adding-a-new-algorithm)).
-- Keep PRs scoped — one algorithm, one bug fix, or one trainer improvement is
-  easier to review than a large research dump.
-
-**Issue workflow:** open an issue on
-[torchrl-hydra-template](https://github.com/raphaelschwinger/torchrl-hydra-template/issues),
-link to a minimal repro or branch in your repo, and explain why the change
-belongs in the template rather than staying project-specific.
-
-## Acknowledgements
-
-This project builds on the ideas pioneered by
-[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template) by
-@ashleve and further refined in
-[yet-another-lightning-hydra-template](https://github.com/gorodnitskiy/yet-another-lightning-hydra-template)
-by @gorodnitskiy. Their work on combining structured Hydra configs with clean
-training pipelines served as the foundation; this template adapts that philosophy
-to the reinforcement learning setting with TorchRL.
-
-The DQN reference implementation in `src/algorithms/dqn/dqn.py` is modelled on the
-torchrl SOTA reference at
-[`pytorch/rl/sota-implementations/dqn/dqn_cartpole.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/dqn/dqn_cartpole.py).
-The DDPG reference implementation in `src/algorithms/ddpg/ddpg.py` is modelled on the
-torchrl SOTA reference at
-[`pytorch/rl/sota-implementations/ddpg/ddpg.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/ddpg/ddpg.py).
-The A2C reference implementation in `src/algorithms/a2c/a2c.py` is modelled on the
-torchrl SOTA reference at
-[`pytorch/rl/sota-implementations/a2c/a2c_mujoco.py`](https://github.com/pytorch/rl/blob/main/sota-implementations/a2c/a2c_mujoco.py).
-The PPO reference implementation in `src/algorithms/ppo/ppo.py` follows
-[cleanRL's PPO](https://docs.cleanrl.dev/rl-algorithms/ppo/) and
-[*The 37 Implementation Details of PPO*](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/),
-cross-checked against the
-[torchrl SOTA PPO references](https://github.com/pytorch/rl/tree/main/sota-implementations/ppo).
-The TD-MPC2 implementation in `src/algorithms/tdmpc2/` is adapted from the official
-implementation by Nicklas Hansen at
-[nicklashansen/tdmpc2](https://github.com/nicklashansen/tdmpc2) (MIT license); it stays
-state-dict compatible with the official checkpoints from
-[tdmpc2.com/models](https://www.tdmpc2.com/models).
-Shared building blocks live in `src/components/` with per-file attribution headers:
-`math.py`, `layers.py` and `scale.py` are adapted from nicklashansen/tdmpc2 (MIT),
-`distributions.py` from [NM512/r2dreamer](https://github.com/NM512/r2dreamer), and
-`optim/laprop.py` from
-[Z-T-WANG/LaProp-Optimizer](https://github.com/Z-T-WANG/LaProp-Optimizer) (MIT);
-`ema.py` and `optim/agc.py` are template-native.

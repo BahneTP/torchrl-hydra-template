@@ -18,7 +18,7 @@
 # Output: logs/analysis/<group>{,_aggregate,_performance_profile,
 # _sample_efficiency,_sample_walltime_efficiency}.{png,pdf,svg} plus a
 # markdown/csv score table. `--publish` copies the PNGs and tables into
-# docs/figures/, which is what README.md embeds — regenerate the committed
+# docs/figures/, which is what docs/evaluation.md embeds — regenerate the committed
 # figures with `--tag <sweep tag> --publish`.
 #
 # READ THE CAVEAT BEFORE USING THE NUMBERS: rlops averages the last
