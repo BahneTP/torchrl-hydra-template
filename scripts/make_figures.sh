@@ -14,6 +14,14 @@
 #   ./scripts/make_figures.sh --tag template-v2  # a different W&B tag
 #   ./scripts/make_figures.sh --metric charts/episodic_return   # override metric
 #   ./scripts/make_figures.sh --tag template-v2 --publish       # + copy into docs/figures/
+#   ./scripts/make_figures.sh --full --publish   # publish-quality bootstrap CIs
+#
+# rliable's Stratified Bootstrap CIs default (in openrlbenchmark) to only 10
+# reps per estimator — fine for iterating on layout, too few to trust the
+# interval widths. `--full` switches to openrlbenchmark's own recommended
+# values (sample-efficiency 50000, performance-profile/interval-estimates
+# 2000 each); use it whenever a figure is headed for docs/figures/. The three
+# `--bootstrap-reps-*` flags override individually if you need something else.
 #
 # Output: logs/analysis/<group>{,_aggregate,_performance_profile,
 # _sample_efficiency,_sample_walltime_efficiency}.{png,pdf,svg} plus a
@@ -49,6 +57,11 @@ OUT_DIR="logs/analysis"
 PUBLISH_DIR="docs/figures"
 PUBLISH=0
 VENV=".venv-openrlbenchmark"
+# openrlbenchmark's own quick-test defaults; --full switches to its
+# recommended values (see comments in openrlbenchmark/rlops.py's RliableConfig).
+SAMPLE_EFFICIENCY_REPS=10
+PERFORMANCE_PROFILE_REPS=10
+INTERVAL_ESTIMATES_REPS=10
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,7 +72,15 @@ while [[ $# -gt 0 ]]; do
     --metric)   METRIC="$2"; shift 2 ;;
     --out)      OUT_DIR="$2"; shift 2 ;;
     --publish)  PUBLISH=1; shift ;;
-    -h|--help)  sed -n '2,34p' "$0"; exit 0 ;;
+    --full)
+      SAMPLE_EFFICIENCY_REPS=50000
+      PERFORMANCE_PROFILE_REPS=2000
+      INTERVAL_ESTIMATES_REPS=2000
+      shift ;;
+    --bootstrap-reps-sample-efficiency)  SAMPLE_EFFICIENCY_REPS="$2"; shift 2 ;;
+    --bootstrap-reps-performance-profile) PERFORMANCE_PROFILE_REPS="$2"; shift 2 ;;
+    --bootstrap-reps-interval-estimates)  INTERVAL_ESTIMATES_REPS="$2"; shift 2 ;;
+    -h|--help)  sed -n '2,43p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -131,6 +152,9 @@ for spec in "${FIG_GROUPS[@]}"; do
     --rc.sample-efficiency-plots \
     --rc.performance-profile-plots \
     --rc.aggregate-metrics-plots \
+    --rc.sample-efficiency-num-bootstrap-reps "$SAMPLE_EFFICIENCY_REPS" \
+    --rc.performance-profile-num-bootstrap-reps "$PERFORMANCE_PROFILE_REPS" \
+    --rc.interval-estimates-num-bootstrap-reps "$INTERVAL_ESTIMATES_REPS" \
     --output-filename "${OUT_DIR}/${name}" \
     --scan-history || status=1
 done

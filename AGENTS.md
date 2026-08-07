@@ -29,8 +29,11 @@ Other algorithms will follow.
 Cross-algorithm results for the two comparison groups (Atari-100k Jamesbond and
 DMC cheetah-run, 3 seeds each) live in **docs/evaluation.md → Benchmark
 results**, with the figures in `docs/figures/`. Regenerate them from W&B with
-`./scripts/make_figures.sh --tag <sweep tag> --publish`; never hand-edit the
-tables there, they are `rlops` output.
+`./scripts/make_figures.sh --tag <sweep tag> --full --publish`; never hand-edit
+the tables there, they are `rlops` output. `--full` raises rliable's
+Stratified Bootstrap CI rep counts from openrlbenchmark's 10-rep quick-test
+default to its own recommended values — omit it only for a fast layout
+preview, never for a figure that ships.
 
 **Experiments are named after the benchmark, not the task.** The table shows
 each experiment's *default* task; every environment config exposes a single
@@ -670,7 +673,7 @@ python scripts/update_algo_results.py              # refresh algo README benchma
 # copies PNGs + tables into docs/figures/, which docs/evaluation.md embeds.
 ./scripts/make_figures.sh                          # every group, tag `template`
 ./scripts/make_figures.sh --group atari100k        # one comparison group
-./scripts/make_figures.sh --tag template-v2 --publish   # regenerate docs/evaluation.md figures
+./scripts/make_figures.sh --tag template-v2 --full --publish   # regenerate docs/evaluation.md figures
 pytest tests/test_smoke.py -v
 
 # Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):

@@ -152,10 +152,19 @@ contract above is what `rlops` expects; the first run builds an isolated
 env).
 
 ```shell
-./scripts/make_figures.sh                              # every group, W&B tag `template`
-./scripts/make_figures.sh --group atari100k            # one comparison group
-./scripts/make_figures.sh --tag template-v2 --publish  # regenerate docs/figures/
+./scripts/make_figures.sh                                    # every group, W&B tag `template`
+./scripts/make_figures.sh --group atari100k                  # one comparison group
+./scripts/make_figures.sh --tag template-v2 --full --publish # regenerate docs/figures/
 ```
+
+`--full` matters: by default the script runs with openrlbenchmark's own
+10-rep quick-test setting for rliable's Stratified Bootstrap CIs (sample
+efficiency, performance profile, interval estimates), which is fine for
+checking layout but too few reps to trust the interval widths. `--full`
+switches to openrlbenchmark's recommended rep counts (50000 / 2000 / 2000);
+use it for anything committed to `docs/figures/`. The three
+`--bootstrap-reps-sample-efficiency` / `--bootstrap-reps-performance-profile`
+/ `--bootstrap-reps-interval-estimates` flags override individually.
 
 Figures are plotted on `charts/eval_episodic_return`, not the canonical
 `charts/episodic_return`, so a comparison always shows the *same measurement*
@@ -175,8 +184,8 @@ sweep's runs together (see [Multi-GPU benchmark sweeps](#multi-gpu-benchmark-swe
 
 Three seeds per algorithm, produced by `./scripts/run_benchmarks.sh --gpus 2,3
 --tag template-v2` and plotted with `./scripts/make_figures.sh --tag
-template-v2 --publish`. Shaded bands are ±1 std over seeds; every number is the
-mean of the last 100 logged evaluation episodes.
+template-v2 --full --publish`. Shaded bands are ±1 std over seeds; every
+number is the mean of the last 100 logged evaluation episodes.
 
 **Read these as a template smoke test, not as a benchmark claim.** Each suite
 here is a *single* task, so rliable's median / IQM / mean necessarily coincide
