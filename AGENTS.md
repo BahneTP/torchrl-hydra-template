@@ -4,8 +4,9 @@
 
 A modular reinforcement learning research template built on
 [TorchRL](https://github.com/pytorch/rl) and
-[Hydra](https://github.com/facebookresearch/hydra). Three composable components —
-**Environment**, **Algorithm**, **Trainer** — are wired together by `src/train.py`.
+[Hydra](https://github.com/facebookresearch/hydra). Four composable components —
+**Environment**, **Algorithm**, **Trainer**, **Evaluation** — are wired together by
+`src/train.py` (and `src/eval.py`) via `src/utils/instantiate.py::build_trainer`.
 
 Implemented experiments:
 
@@ -18,11 +19,21 @@ Implemented experiments:
 | PPO       | DMC cheetah-run | `experiment=ppo/dmc`         |
 | PPO       | ALE/Jamesbond-v5 (Atari-100k) | `experiment=ppo/ale` |
 | TD-MPC2   | dmc cheetah-run | `experiment=tdmpc2/dmc`      |
-| DreamerV3 | ALE/Hero-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DreamerV3 | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=dreamer/atari100k` |
+| DreamerV3 | DMC cheetah-run<br>(proprio) | `experiment=dreamer/dmc` |
 | DER (Rainbow) | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=rainbow/atari100k` |
 | BBF       | ALE/Jamesbond-v5<br>(Atari100k) | `experiment=bbf/atari100k` |
 
 Other algorithms will follow.
+
+Cross-algorithm results for the two comparison groups (Atari-100k Jamesbond and
+DMC cheetah-run, 3 seeds each) live in **docs/evaluation.md → Benchmark
+results**, with the figures in `docs/figures/`. Regenerate them from W&B with
+`./scripts/make_figures.sh --tag <sweep tag> --full --publish`; never hand-edit
+the tables there, they are `rlops` output. `--full` raises rliable's
+Stratified Bootstrap CI rep counts from openrlbenchmark's 10-rep quick-test
+default to its own recommended values — omit it only for a fast layout
+preview, never for a figure that ships.
 
 **Experiments are named after the benchmark, not the task.** The table shows
 each experiment's *default* task; every environment config exposes a single
@@ -35,7 +46,9 @@ python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
 
 Eval env configs interpolate `name: ALE/${environment.task}-v5` — an *absolute*
 reference, so under the `eval_environment` package they resolve against the
-train env. One `environment.task=` moves both.
+train env. One `environment.task=` moves both. Every env config also carries
+`env_id` (the benchmark id logged to W&B, **without** the `ALE/` prefix) and
+`action_repeat` (env frames per agent step), which are reporting metadata only.
 Max-and-skip and episodic-life use `gymnasium_wrappers` (SB3-style gym wrappers
 in [`src/environments/atari_wrappers.py`](src/environments/atari_wrappers.py))
 so life loss is evaluated after each aggregated agent step; the rest of the
@@ -66,8 +79,12 @@ target. It requires `trainer.num_envs=1` (a single contiguous stream).
      `algorithm.get_collector_config()`, calls `algorithm.step(batch)`, manages the
      device, fires callbacks, and checkpoints.  Nothing on the trainer config affects
      reward or sample efficiency.
-   - **Environment** is a fixed task definition: env name + transform list. It does
-     not know about the algorithm.
+   - **Environment** is a fixed task definition: env name + transform list, plus
+     `env_id` / `action_repeat` reporting metadata. It does not know about the
+     algorithm.
+   - **Evaluation** owns the measurement protocol: eval env stack, cadence,
+     episode count, policy mode, and which stream is canonical. Like the trainer,
+     nothing on it may affect reward or sample efficiency.
 3. **One source of truth per concern.** HP defaults live in the algorithm's
    `__init__` (with type hints + docstrings). YAML mirrors them for overrides.
 4. **Callable factories via Hydra.** Design choices that are `Callable`s (replay
@@ -340,30 +357,121 @@ and **dm_control** (`DMControlEnv`). dm_control observations are dicts; use
 `in_keys` order matches the upstream TD-MPC2 concatenation). For >1 `num_envs`,
 workers run on CPU (`ParallelEnv` with `mp_start_method="spawn"`).
 
-### Separate evaluation env
+## Evaluation
 
-`BaseTrainer` accepts an optional `eval_environment: Environment | None` arg.
-When set, `evaluate()` builds its eval env from it; otherwise it falls back to
-`environment`. Wire it in via Hydra package overrides:
+Evaluation is a config group of its own, `configs/evaluation/`, holding the
+*measurement* protocol. Like the trainer, it must carry nothing that shifts the
+learning curve.
 
 ```yaml
 # configs/train.yaml (and eval.yaml)
 defaults:
   - environment: ???
-  - environment@eval_environment: null   # default: no separate eval env
+  - evaluation: gym        # protocol + eval env stack
 
 # configs/experiment/dqn/ale.yaml
 defaults:
   - override /environment: ale
-  - override /environment@eval_environment: ale_eval
+  - override /evaluation: ale
 ```
 
-`src/train.py` and `src/eval.py` build the eval `Environment` via
-`cfg.get("eval_environment")` and pass it to the trainer constructor.
+Every file inherits from `evaluation/none.yaml`, which is the **schema of
+record** — add new keys there first, then override in the benchmark files:
 
-Use this when training-time and evaluation-time observations should differ
-(e.g. Atari, where `EndOfLifeTransform` and `SignTransform` are train-only and
-`VecNorm` is dropped at eval because its running stats are not checkpointed).
+| key | meaning |
+|---|---|
+| `eval_environment` | env stack to measure on (a nested defaults entry; `null` reuses the train env config) |
+| `every_n_steps` | periodic eval cadence in agent steps; `0` = final only |
+| `num_episodes` | episodes per periodic eval point |
+| `final_num_episodes` | episodes in the post-training stage; `0` disables |
+| `policy` | `eval` -> `get_policy()`, `explore` -> `get_explore_policy()` |
+| `canonical_source` | `train` or `eval`; which stream feeds `charts/episodic_return` |
+| `seed` | eval env seed base; the *n*th eval point seeds with `seed + n` |
+| `summary_window` | episodes averaged for `eval/final_return_mean` (default 100) |
+| `summary_max_step` | ignore canonical episodes past this agent step (`null` = whole run); `src/eval.py` forces it to `null` when not training, since a standalone eval logs every episode at the checkpoint's step and the cutoff would discard all of them |
+
+Shipped: `none`, `gym`, `ale`, `atari100k`, `atari100k_native`, `dmc`.
+
+`atari100k_native` is `atari100k` with `eval_environment` left `null`, so the
+eval env is a fresh instance of the *experiment's own* training stack. It exists
+for DreamerV3, whose 64x64 RGB `image` stack cannot be served by the shared
+grayscale, frame-stacked `atari100k_eval` — and does not need to be, since that
+stack is already eval-clean (`terminal_on_life_loss: false`, no reward clipping).
+
+`canonical_source` is not cosmetic. On `atari100k`, `EpisodicLifeEnv` sets
+`terminated=True` at life loss, so `RewardSum` resets and a training episode is
+a life-long fragment — those benchmarks must measure from eval rollouts. On
+`ale`, `EndOfLifeTransform` deliberately does *not* set `done` and
+`SignTransform` sits after `RewardSum`, so training episodes are already
+unclipped game scores and `canonical_source: train` is correct.
+
+`BaseTrainer.evaluate()` builds the eval env **once** and reuses it, seeds it,
+selects the policy from `evaluation.policy`, and snapshots/restores every
+algorithm module's `.training` flag — Rainbow's `get_policy()` toggles noisy
+layers, which periodic evaluation would otherwise leak into training.
+
+It advances the rollout with **`env.step_mdp(td)`**, never `td["next"]`.
+`td["next"]` keeps only env-written keys and discards whatever the policy left
+at the root — for a recurrent policy that is its entire state (DreamerPolicy's
+`stoch` / `deter` / `prev_action`), so it would silently re-initialise every
+step and score near zero while looking like it ran fine. `step_mdp` is
+`_StepMDP(keep_other=True)`, the same transition the collector uses, so
+evaluation and collection advance identically.
+`tests/test_evaluation_contract.py::test_evaluation_preserves_recurrent_policy_state`
+guards this.
+
+`src/train.py` and `src/eval.py` both go through
+`src/utils/instantiate.py::build_trainer`, which reads the eval env from
+`cfg.evaluation.eval_environment`. They differ only in the top-level `train:` /
+`eval:` stage flags they pass to `trainer.run()`.
+
+## Metrics and openrlbenchmark
+
+Everything is logged against **`global_step` in agent steps** (what
+`batch.numel()` counts), with `frames = global_step * action_repeat` alongside.
+No algorithm may define its own axis.
+
+| key | rows |
+|---|---|
+| `charts/episodic_return` / `_length` | one per episode, from `canonical_source` |
+| `charts/train_episodic_return` / `_length` | one per completed training episode |
+| `charts/eval_episodic_return` / `_length` | one per eval episode |
+| `eval/return_{mean,std,min,max}`, `eval/episodes` | one per eval point |
+| `eval/final_return_mean` / `_std` | run summary (logger summary, not history) |
+| `train/*`, `time/*` | log boundaries |
+
+Emit metrics only through `BaseTrainer.log_metrics(metrics, step)` and
+`log_episodes(returns, lengths, step, source)` — they inject `global_step` and
+`frames`. The callback protocol separates `on_metrics` (a row of metrics; fires
+per episode, loggers want it) from `on_step_end` (the loop crossed a boundary;
+progress bar and checkpointer want it).
+
+**One `train/` family per algorithm.** Everything an algorithm returns from
+`step()` (or from the optional `pop_train_metrics()` window-mean hook, which
+`StepTrainer` *merges* into the same row) is prefixed `train/`. Dreamer's model
+reports `loss/…` and `opt/…` internally; those are flattened to
+`train/loss_…` / `train/opt_…` on the way out. No algorithm keeps its own
+episode-return statistic either — `train/episode_reward` and the per-episode
+`charts/*` rows come from the trainer, from the same tensordict keys, and a
+private rolling mean next to them is a second definition of the same number.
+The one accepted exception is Dreamer's `video/*`, which keeps its own
+`video/frame` axis (see below).
+
+Compatibility rules, enforced by `tests/test_evaluation_contract.py`:
+
+- `env_id`, `exp_name`, `seed` stay **top-level** in `configs/train.yaml`;
+  openrlbenchmark filters on `config.<key>` and nesting forces brittle
+  `ceik=environment.value.task` selectors.
+- `env_id` carries **no `ALE/` prefix** — the HNS table is keyed `Pong-v5`.
+- `(exp_name, env_id)` must be unique across experiments, or two variants merge
+  into one curve. `bbf/atari100k_rr8` sets `exp_name: bbf_rr8`;
+  `rainbow/atari100k` sets `exp_name: der`.
+- `WandBLogger` calls `wandb.log` **without** `step=`, plus
+  `define_metric("*", step_metric="global_step")`. `rlops` joins with
+  `history(keys=[xaxis, "_runtime", metric]).dropna()`, so a metric logged
+  without `global_step` in the same row silently contributes nothing.
+- Episodes are logged one row each, never pre-aggregated: openrlbenchmark's
+  tables average the last 100 *logged points*.
 
 ## Trainer
 
@@ -374,15 +482,17 @@ Use this when training-time and evaluation-time observations should differ
   `ON_STEP_END` callbacks at logging boundaries;
 - delegates device resolution to `src/utils/device.py`.
 
-`BaseTrainer` owns env lifecycle, `evaluate(num_episodes)` (greedy rollout), and
-checkpoint orchestration. By default (`configs/train.yaml`) a final
-`checkpoints/last.pt` is written at train end (`checkpoint.enabled: true`,
-`save_last: true`); periodic saves are off (`save_every_n_steps: 0`) — set a
-positive value to enable them. After training, `fit()` runs one evaluation of
-`trainer.final_eval_episodes` episodes (default 10 in
-`configs/trainer/default.yaml`; `0` disables) on the eval environment and logs the `eval/*` metrics at the final step; the BBF
-experiments set it to `100` to match the official Atari-100k protocol.
-`checkpoint.resume_from` works regardless of `checkpoint.enabled`.
+`BaseTrainer` owns env lifecycle, metric emission, the evaluation protocol and
+checkpoint orchestration. `run(train, evaluate)` is the full lifecycle:
+`ON_TRAIN_START` -> optional `_training_loop()` -> optional
+`run_final_evaluation()` -> `ON_TRAIN_END` in a `finally`. By default
+(`configs/train.yaml`) a final `checkpoints/last.pt` is written at train end
+(`checkpoint.enabled: true`, `save_last: true`); periodic saves are off
+(`save_every_n_steps: 0`) — set a positive value to enable them. The
+post-training evaluation stage runs `evaluation.final_num_episodes` episodes
+(the BBF and DER experiments set `100` for the official Atari-100k protocol) and
+is skipped with `eval=false`. `checkpoint.resume_from` works regardless of
+`checkpoint.enabled`.
 
 ## File map
 
@@ -461,13 +571,20 @@ configs/
   environment/ale_eval.yaml — same without those three (true game scores)
   environment/atari100k.yaml      — Atari-100k protocol (gymnasium_wrappers: max-and-skip + episodic-life; clipped rewards)
   environment/atari100k_eval.yaml — same without episodic-life / Sign (true game-over, unclipped)
+  evaluation/none.yaml      — base schema; training stream only, no eval rollouts
+  evaluation/gym.yaml       — final eval only, canonical_source: train
+  evaluation/ale.yaml       — ale_eval stack, canonical_source: train
+  evaluation/atari100k.yaml — atari100k_eval, every 10k + 100 final episodes, canonical_source: eval
+  evaluation/atari100k_native.yaml — same protocol on the experiment's own stack (DreamerV3)
+  evaluation/dmc.yaml       — periodic every 10k agent steps (TD-MPC2 upstream)
   experiment/dqn/{gym,ale}.yaml — DQN on CartPole / Atari Pong (40M frames)
   experiment/ddpg/gym.yaml      — DDPG HalfCheetah (1M frames)
   experiment/a2c/gym.yaml       — A2C HalfCheetah (1M frames)
   experiment/ppo/{dmc,ale}.yaml — PPO DMC cheetah-run (1M) / Atari-100k JamesBond (100k)
   experiment/tdmpc2/dmc.yaml    — TD-MPC2 DMC cheetah-run
   experiment/rainbow/atari100k.yaml — Data-Efficient Rainbow on Atari-100k
-  experiment/dreamer/atari100k.yaml — DreamerV3 on Atari-100k
+  experiment/dreamer/atari100k.yaml — DreamerV3 on Atari-100k (image obs)
+  experiment/dreamer/dmc.yaml       — DreamerV3 on DMC cheetah-run, proprio (mlp_keys=observation)
   experiment/bbf/atari100k.yaml     — BBF on Atari-100k (RR2 default; num_envs=1)
   experiment/bbf/atari100k_rr8.yaml — BBF flagship RR8 variant (same 40k-grad-step reset cadence)
   logger/{wandb,tensorboard}.yaml
@@ -532,7 +649,8 @@ python src/train.py experiment=ppo/dmc             # PPO on DMC cheetah-run (1M 
 python src/train.py experiment=ppo/ale             # PPO on Atari-100k JamesBond (100k steps, GPU)
 python src/train.py experiment=tdmpc2/dmc          # TD-MPC2 model-based control (1M frames, GPU)
 python src/train.py experiment=rainbow/atari100k   # DER on Atari-100k Jamesbond (100k frames, GPU)
-python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Hero (GPU)
+python src/train.py experiment=dreamer/atari100k   # DreamerV3 on Atari-100k Jamesbond (GPU)
+python src/train.py experiment=dreamer/dmc         # DreamerV3 on DMC cheetah-run, proprio (GPU)
 python src/train.py experiment=bbf/atari100k       # BBF on Atari-100k Jamesbond (RR2, GPU)
 python src/train.py experiment=bbf/atari100k_rr8   # BBF flagship RR8 (~4x compute)
 
@@ -541,6 +659,21 @@ python src/train.py experiment=dqn/ale environment.task=Breakout trainer.devices
 python src/train.py experiment=tdmpc2/dmc environment.task=walker-walk
 
 python scripts/update_algo_results.py              # refresh algo README benchmark tables (W&B tag: template)
+
+# Cross-algorithm sweep: 6 experiments x 3 seeds, queue-balanced over GPUs.
+# Resumable (markers in logs/benchmarks/done/); tags runs `template`.
+./scripts/run_benchmarks.sh --dry-run              # print the 18 commands
+./scripts/run_benchmarks.sh --smoke                # tiny budgets; validates every spec
+./scripts/run_benchmarks.sh --gpus 2,3             # the real sweep
+
+# Comparison figures + rliable, via openrlbenchmark's own rlops CLI.
+# First run builds an isolated .venv-openrlbenchmark; output in logs/analysis/.
+# Plotted on charts/eval_episodic_return so every algorithm in a figure shows
+# the same measurement (canonical_source differs per experiment). `--publish`
+# copies PNGs + tables into docs/figures/, which docs/evaluation.md embeds.
+./scripts/make_figures.sh                          # every group, tag `template`
+./scripts/make_figures.sh --group atari100k        # one comparison group
+./scripts/make_figures.sh --tag template-v2 --full --publish   # regenerate docs/evaluation.md figures
 pytest tests/test_smoke.py -v
 
 # Evaluate an official TD-MPC2 checkpoint (see src/algorithms/tdmpc2/README.md):

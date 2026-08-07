@@ -157,19 +157,25 @@ python src/train.py experiment=bbf/atari100k environment.task=Breakout
 # Paper flagship: replay ratio 8 (A100-class GPU recommended)
 python src/train.py experiment=bbf/atari100k_rr8
 
-# Re-evaluate a saved checkpoint on the true-score eval env (game over = episode end)
+# Re-evaluate a saved checkpoint on the true-score eval env (game over = episode end).
+# The 100-episode protocol comes from `evaluation: atari100k`; add
+# `logger.0.resume=must` to append the result to the original training run.
 python src/eval.py experiment=bbf/atari100k \
-    checkpoint.resume_from=logs/train/runs/<run>/checkpoints/last.pt \
-    trainer.num_eval_episodes=100
+    checkpoint.resume_from=logs/train/runs/<run>/checkpoints/last.pt
 ```
 
 **Comparing against the paper:** the official protocol is a 100-episode eval
 at the *end* of training on full (game-over) episodes. Training runs this
-automatically (the experiments set `trainer.final_eval_episodes: 100`), logs
-it as `eval/return_mean` etc. at the final step, and saves
-`checkpoints/last.pt`; `src/eval.py` re-evaluates a checkpoint later.
-`train/episode_reward` in W&B is a per-*life* return (the train
-env uses `EpisodicLifeEnv`), so it reads several times lower than eval scores.
+automatically (`configs/evaluation/atari100k.yaml` sets
+`final_num_episodes: 100`), logs one `charts/eval_episodic_return` row per
+episode plus the `eval/return_mean` aggregate, and saves `checkpoints/last.pt`;
+`src/eval.py` re-evaluates a checkpoint later. That protocol also sets
+`canonical_source: eval`, so `charts/episodic_return` — the metric
+openrlbenchmark reads — comes from those rollouts. It has to:
+`charts/train_episodic_return` is a per-*life* return (the train env uses
+`EpisodicLifeEnv`, which resets `RewardSum` at life loss), so it reads several
+times lower than eval scores. Add `evaluation.every_n_steps=10_000` for a
+learning curve instead of a single final number.
 Official per-seed Jamesbond results from the repo's `scores/RR2_BBF.csv`
 (14 seeds): mean ≈ 1125, median 1118, min 573, max 1490 — seed variance is
 large even upstream.
@@ -194,7 +200,10 @@ python src/train.py experiment=bbf/atari100k \
 
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
-| --- | ----------- | ------ | ---- | ------ | ----------- | ----- |
+|-----|-------------|--------|------|--------|-------------|-------|
+| [bbf_Jamesbond_2026-08-03_10-06-24](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/vwbpoxw5) | ALE/Jamesbond-v5 | `experiment=bbf/atari100k` | 1 | 100,000 | 1,251.0 | — |
+| [bbf_Jamesbond_2026-08-03_10-11-48](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/dc2e91w2) | ALE/Jamesbond-v5 | `experiment=bbf/atari100k` | 2 | 100,000 | 702.0 | — |
+| [bbf_Jamesbond_2026-08-03_11-59-19](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/xxxxqws7) | ALE/Jamesbond-v5 | `experiment=bbf/atari100k` | 3 | 100,000 | 524.5 | — |
 
 
 *No runs recorded yet. This table is regenerated from W&B runs tagged* `template`

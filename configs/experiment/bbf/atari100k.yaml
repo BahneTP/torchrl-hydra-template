@@ -5,7 +5,7 @@
 defaults:
   - override /algorithm: bbf
   - override /environment: atari100k
-  - override /environment@eval_environment: atari100k_eval
+  - override /evaluation: atari100k
   - override /trainer: gpu
   - override /logger: wandb
   - _self_
@@ -21,4 +21,3 @@ trainer:
   total_frames: 100_000
   seed: 1
   num_envs: 1              # BBF requires a single contiguous stream
-  final_eval_episodes: 100 # official protocol: 100 game-over episodes at end

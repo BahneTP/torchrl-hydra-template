@@ -32,6 +32,14 @@ class Environment:
         backend: ``"gymnasium"`` (default) or ``"dm_control"``.
         task: for ``backend="dm_control"``, the ``"<domain>-<task>"`` id
             (e.g. ``"cheetah-run"``); required for that backend.
+        env_id: benchmark id reported to loggers, e.g. ``"Pong-v5"``. Kept
+            separate from ``name`` because openrlbenchmark matches
+            ``config.env_id`` exactly and its human-normalised-score table is
+            keyed without the ``"ALE/"`` namespace prefix.
+        action_repeat: environment frames consumed per agent step (frame skip
+            or action repeat). Reporting metadata only — the actual repeat is
+            implemented by the env stack. Used to derive the ``frames`` metric
+            from ``global_step``.
 
     Raises:
         ValueError: if the keys required by ``backend`` are missing. Checked
@@ -48,6 +56,8 @@ class Environment:
         gym_backend: str | None = None,
         backend: str = "gymnasium",
         task: str | None = None,
+        env_id: str | None = None,
+        action_repeat: int = 1,
         **_: object,
     ) -> None:
         if backend == "gymnasium" and not name:
@@ -60,6 +70,10 @@ class Environment:
                 "environment.task is required for backend='dm_control' "
                 "(e.g. task: cheetah-run)."
             )
+        # Reporting metadata; deliberately kept out of _factory_kwargs so it
+        # never reaches the env constructors.
+        self.env_id = env_id or task or name
+        self.action_repeat = int(action_repeat)
         self._factory_kwargs: dict = {
             "name": name,
             "transforms": transforms,

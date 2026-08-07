@@ -5,6 +5,9 @@
 #   python src/train.py experiment=ddpg/gym environment.task=Ant-v4
 task: CartPole-v1
 name: ${environment.task}
+# Benchmark id logged to W&B (openrlbenchmark matches config.env_id exactly).
+env_id: ${environment.task}
+action_repeat: 1
 gym_backend: gymnasium
 
 # DoubleToFloat casts float64 observation/action specs (MuJoCo) to float32 for

@@ -6,7 +6,7 @@ defaults:
   - override /algorithm: dqn
   - override /algorithm/network: nature_dqn
   - override /environment: ale
-  - override /environment@eval_environment: ale_eval
+  - override /evaluation: ale
   - override /trainer: gpu
   - override /logger: wandb
   - _self_

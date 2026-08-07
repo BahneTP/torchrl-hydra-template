@@ -589,6 +589,12 @@ class RainbowAlgorithm(DQNAlgorithm):
     # ------------------------------------------------------------------
 
     def get_policy(self):
+        # NoisyLinear reads `nn.Module.training` to decide whether to sample
+        # fresh weight noise or use the mean weights; `.eval()` also disables
+        # dropout-like behaviour in any other submodule. This mutates shared
+        # state, which periodic evaluation would otherwise leak into training
+        # — `BaseTrainer.evaluate()` snapshots and restores every algorithm
+        # module's `.training` flag around the rollout.
         self.q_actor.eval()
         return TensorDictSequential(
             self.q_actor,

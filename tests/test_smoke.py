@@ -18,7 +18,7 @@ BASE_OVERRIDES = [
     "logger=[]",
     "trainer.accelerator=cpu",
     "trainer.devices=[0]",
-    "trainer.final_eval_episodes=0",  # keep smoke runs to seconds
+    "eval=false",  # skip the post-training evaluation stage; keeps runs to seconds
     # The compose API can't resolve ${hydra:runtime.output_dir}; checkpointing
     # is on by default (save_last), so point it at a literal path to keep the
     # default checkpoint path exercised.
@@ -298,8 +298,8 @@ def _dreamer_overrides() -> list[str]:
     ]
 
 
-def test_smoke_dreamer_hero():
-    """DreamerV3 on ALE/Hero-v5: pixel obs, RSSM world model, actor-critic."""
+def test_smoke_dreamer_jamesbond():
+    """DreamerV3 on ALE/Jamesbond-v5: pixel obs, RSSM world model, actor-critic."""
     pytest.importorskip("ale_py")
     cfg = load_experiment_cfg("dreamer/atari100k", _dreamer_overrides())
     from src.train import _train
