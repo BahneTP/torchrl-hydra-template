@@ -20,7 +20,7 @@ env_id: ${oc.select:environment.env_id,unknown}
 exp_name: ${hydra:runtime.choices.algorithm}
 seed: ${trainer.seed}
 
-run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_eval_${now:%Y-%m-%d_%H-%M-%S}
+run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${hydra:runtime.choices.environment}_eval_${now:%Y-%m-%d_%H-%M-%S}
 
 # src/eval.py normalises the W&B logger for this entry point (job_type=eval,
 # an `eval` tag, and the run-id sidecar) regardless of which logger config an

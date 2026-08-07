@@ -108,7 +108,7 @@ interpolation variables consumed by the RSSM, encoder, decoder, actor, and criti
 | `200m` | 8192    | 1024               | 64      | 64         | ~200M   |
 | `400m` | 12288   | 1536               | 64      | 64         | ~400M   |
 
-Experiments default to `200m`. Override with e.g. `+algorithm/dreamer=50m`.
+Experiments default to `200m`. Override with e.g. `algorithm/dreamer=50m`.
 
 ### Mapping pseudocode → code
 

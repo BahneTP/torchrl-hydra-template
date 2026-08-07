@@ -28,8 +28,10 @@ exp_name: ${hydra:runtime.choices.algorithm}
 seed: ${trainer.seed}
 
 # Display name for the run (W&B). ``oc.select`` keeps this resolvable for env
-# configs without a ``task`` key. Experiments may override it.
-run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${now:%Y-%m-%d_%H-%M-%S}
+# configs without a ``task`` key. ``hydra:runtime.choices.environment`` is the
+# selected environment config name (e.g. ``atari100k``, ``dmc``) and doubles as
+# the benchmark name with no extra config. Experiments may override it.
+run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${hydra:runtime.choices.environment}_${now:%Y-%m-%d_%H-%M-%S}
 
 checkpoint:
   enabled: true

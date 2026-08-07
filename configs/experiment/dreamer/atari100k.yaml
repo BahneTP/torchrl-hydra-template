@@ -1,6 +1,6 @@
 # @package _global_
 # DreamerV3 on Atari-100k. Swap the world model with `algorithm=r2dreamer` or
-# `algorithm=dreamerpro`, and the model size with `+algorithm/dreamer=50m`.
+# `algorithm=dreamerpro`, and the model size with `algorithm/dreamer=50m`.
 # Run another game with: environment.task=Breakout
 defaults:
   - /algorithm/dreamer: 200m
@@ -61,7 +61,9 @@ algorithm:
 evaluation:
   policy: explore
 
-run_name: dreamer_${environment.task}_atari100k_${model_size}_${now:%Y-%m-%d_%H-%M-%S}
+# run_name uses the base pattern (configs/train.yaml); model_size isn't in it,
+# but is logged to wandb.config automatically like every other resolved key,
+# so `+algorithm/dreamer=50m` sweeps stay distinguishable there.
 
 trainer:
   total_frames: 100_000
