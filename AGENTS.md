@@ -54,7 +54,18 @@ in [`src/environments/atari_wrappers.py`](src/environments/atari_wrappers.py))
 so life loss is evaluated after each aggregated agent step; the rest of the
 stack is TorchRL transforms (`NoopResetEnv`, `GrayScale`, `Resize`, `CatFrames`,
 …). A TorchRL `MaxAndSkipTransform` is also available when episodic-life is not
-required.
+required. `EpisodicLifeEnv` itself cannot become a `Transform`:
+`TransformedEnv._reset()` always resets the base env before any transform
+runs, so a transform has no hook to substitute a `step()` for that reset the
+way `EpisodicLifeEnv.reset()` does on life loss (see its docstring for the
+full argument). `torchrl.envs.EndOfLifeTransform` is the TorchRL-native
+alternative, but it only tags a bootstrap signal instead of ending the
+episode -- that's why `ale.yaml` uses it while `atari100k.yaml` keeps the gym
+wrapper. `scripts/verify_transform_parity.py` checks the other two pairs
+empirically against a real ALE env: `MaxAndSkipEnv`/`MaxAndSkipTransform` are
+byte-for-byte identical; `NoopResetEnv`/`torchrl.envs.NoopResetEnv` are not
+(the torchrl transform samples random actions during its no-op phase, not the
+literal NOOP), so they are not interchangeable despite the shared name.
 Rainbow with standard (Dopamine-style) hyperparameters is available as
 `algorithm=rainbow`; the official data-efficient preset (DER) is applied by
 `experiment=rainbow/atari100k`, since it is a property of the 100k budget.
