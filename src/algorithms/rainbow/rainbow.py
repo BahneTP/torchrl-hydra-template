@@ -46,6 +46,7 @@ from torchrl.modules import (
 from torchrl.objectives import DistributionalDQNLoss, DQNLoss, HardUpdate
 
 from src.algorithms.dqn.dqn import DQNAlgorithm
+from src.components.exploration import FixedEpsilonGreedy
 
 # Conv encoder shapes. "dqn" follows the BBF/Dopamine Atari encoder with
 # Flax/JAX-style SAME padding; "data_efficient" is the smaller 2-layer encoder
@@ -666,21 +667,4 @@ class _SqueezeUnbatchedActionModule(TensorDictModuleBase):
             and action.shape[0] == 1
         ):
             tensordict.set("action", action.squeeze(0))
-        return tensordict
-
-
-class FixedEpsilonGreedy(TensorDictModuleBase):
-    """Tiny eval epsilon-greedy used by DER."""
-
-    def __init__(self, action_spec, eps: float) -> None:
-        self.in_keys = ["action"]
-        self.out_keys = ["action"]
-        super().__init__()
-        self.action_spec = action_spec
-        self.eps = eps
-
-    def forward(self, tensordict: TensorDict) -> TensorDict:
-        if self.eps > 0 and float(torch.rand(())) < self.eps:
-            random_action = self.action_spec.rand().to(tensordict["action"].device)
-            tensordict.set("action", random_action)
         return tensordict
