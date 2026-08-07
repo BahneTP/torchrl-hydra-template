@@ -6,6 +6,9 @@
 #   python src/train.py experiment=rainbow/atari100k environment.task=Breakout
 task: Jamesbond
 name: ALE/${environment.task}-v5
+# Without the "ALE/" prefix: openrlbenchmark's HNS table is keyed "Jamesbond-v5".
+env_id: ${environment.task}-v5
+action_repeat: 4                  # MaxAndSkipEnv(skip=4) below
 gym_backend: gymnasium
 gym_kwargs:
   frame_skip: 1                   # raw ALE frames; MaxAndSkipEnv does the skipping

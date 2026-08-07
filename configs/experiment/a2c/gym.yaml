@@ -5,6 +5,7 @@
 defaults:
   - override /algorithm: a2c
   - override /environment: gym
+  - override /evaluation: gym
   - override /logger: wandb
   - _self_
 

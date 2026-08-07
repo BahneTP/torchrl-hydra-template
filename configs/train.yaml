@@ -4,15 +4,34 @@ defaults:
   - trainer: default
   - algorithm: ???
   - environment: ???
-  - environment@eval_environment: null   # optional eval env; falls back to environment
+  - evaluation: gym        # measurement protocol + eval env stack
   - logger: tensorboard
   - experiment: null
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
+# Stages, mirroring the train/test split of lightning-hydra-style templates.
+# `eval: false` skips the post-training evaluation stage (see
+# configs/evaluation/ for how many episodes it runs).
+train: true
+eval: true
+
+# --- openrlbenchmark contract -------------------------------------------------
+# These three must stay TOP-LEVEL: openrlbenchmark filters on `config.env_id`,
+# `config.exp_name` and `config.seed`, and W&B's nested-config handling would
+# otherwise force brittle `ceik=environment.value.task` style keys.
+#   python -m openrlbenchmark.rlops --scan-history \
+#     --filters '?we=<entity>&wpn=torchrl-hydra-template&ceik=env_id&cen=exp_name' \
+#       'dqn?seed=1&seed=2&seed=3' --env-ids Pong-v5
+env_id: ${oc.select:environment.env_id,unknown}
+exp_name: ${hydra:runtime.choices.algorithm}
+seed: ${trainer.seed}
+
 # Display name for the run (W&B). ``oc.select`` keeps this resolvable for env
-# configs without a ``task`` key. Experiments may override it.
-run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${now:%Y-%m-%d_%H-%M-%S}
+# configs without a ``task`` key. ``hydra:runtime.choices.environment`` is the
+# selected environment config name (e.g. ``atari100k``, ``dmc``) and doubles as
+# the benchmark name with no extra config. Experiments may override it.
+run_name: ${hydra:runtime.choices.algorithm}_${oc.select:environment.task,unknown}_${hydra:runtime.choices.environment}_${now:%Y-%m-%d_%H-%M-%S}
 
 checkpoint:
   enabled: true

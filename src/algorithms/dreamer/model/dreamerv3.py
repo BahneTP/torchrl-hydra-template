@@ -257,6 +257,15 @@ class DreamerV3(nn.Module):
         """Return a (B, T, C, H*3, W) video tile: truth / reconstruction / open-loop."""
         if not hasattr(self, "decoder"):
             raise NotImplementedError("video_pred requires loss_scales.recon > 0.")
+        if "image" not in self.decoder.cnn_shapes:
+            # Proprioceptive stacks (DMC Proprio) decode vectors, not images —
+            # there is nothing to render. Callers gate on this; the explicit
+            # error is for direct use.
+            raise NotImplementedError(
+                "video_pred requires an image decoder head; this decoder emits "
+                f"{self.decoder.all_keys}. Set encoder/decoder cnn_keys to match "
+                "an image observation key."
+            )
         p_data = self.preprocess(data)
         B = min(p_data["action"].shape[0], 6)
         # (B, T, E)

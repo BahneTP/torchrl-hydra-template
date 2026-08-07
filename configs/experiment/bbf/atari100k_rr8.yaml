@@ -7,10 +7,14 @@
 defaults:
   - override /algorithm: bbf
   - override /environment: atari100k
-  - override /environment@eval_environment: atari100k_eval
+  - override /evaluation: atari100k
   - override /trainer: gpu
   - override /logger: wandb
   - _self_
+
+# Distinct from the RR2 default, which shares this env_id. openrlbenchmark
+# groups runs by (exp_name, env_id), so the two variants must not collide.
+exp_name: bbf_rr8
 
 environment:
   task: Jamesbond
@@ -24,4 +28,3 @@ trainer:
   total_frames: 100_000
   seed: 1
   num_envs: 1              # BBF requires a single contiguous stream
-  final_eval_episodes: 100 # official protocol: 100 game-over episodes at end

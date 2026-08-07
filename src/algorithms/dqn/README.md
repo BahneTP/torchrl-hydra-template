@@ -74,5 +74,4 @@ Reference implementations: [torchrl SOTA DQN CartPole](https://github.com/pytorc
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [dqn_atari_pong_train_2026-05-07_20-44-57](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/mcy6j9e7) | ALE/Pong-v5 | `experiment=dqn/ale` | 42 | 40,000,100 | 21.0 | best train/episode_reward |
-| [dqn_cartpole_2026-05-12_08-17-18](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/33w09b2o) | CartPole-v1 | `experiment=dqn/gym` | 42 | 500,100 | 500.0 | best train/episode_reward |
+| — | — | — | — | — | — | No finished runs tagged ``template`` yet — see [W&B table](https://wandb.ai/LatentLab/torchrl-hydra-template/table) |

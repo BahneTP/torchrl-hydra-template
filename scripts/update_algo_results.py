@@ -342,34 +342,74 @@ def format_return(value: float | None) -> str:
     return f"{value:.2f}"
 
 
-def get_eval_return(run) -> tuple[float | None, str]:
-    """Best available return metric and optional note suffix.
+# openrlbenchmark's reporting rule: the mean of the last N logged points of the
+# metric (its `metric_last_n_average_window`, default 100).
+SUMMARY_WINDOW = 100
 
-    Priority:
-      1. eval/score_mean_last10pct  — Dreamer end-of-run summary (last 10 % of frames)
-      2. eval/return_mean           — DQN / DDPG eval-env metric
-      3. max train/episode_reward   — fallback for runs without an eval env
+# Metric keys written by runs predating the unified evaluation protocol. Kept so
+# already-finished runs still populate the tables; each carries a note because
+# the three are not comparable with each other or with the canonical metric.
+LEGACY_KEYS = (
+    ("eval/score_mean_last10pct", "legacy eval/score_mean_last10pct"),
+    ("eval/return_mean", "legacy eval/return_mean"),
+)
+
+
+def _finite(value) -> float | None:
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return None
+    return val if val == val else None  # drop NaN
+
+
+def get_eval_return(run) -> tuple[float | None, str]:
+    """The run's headline return, using one definition for every algorithm.
+
+    Before the unified evaluation protocol this column was filled from three
+    mutually incomparable sources (Dreamer's last-10%-of-frames summary, an
+    eval-env mean, or the best training episode). Now it is always openrlbenchmark's
+    own rule — the mean of the last 100 logged ``charts/episodic_return`` points
+    — which is exactly what `rlops` puts in its own comparison tables.
+
+    ``eval/final_return_mean`` is the trainer's precomputed version of the same
+    quantity and is preferred when present; the history scan is the fallback for
+    runs interrupted before the summary was written. Legacy keys come last and
+    are labelled in the Notes column.
     """
     summary = run.summary
 
-    for key in ("eval/score_mean_last10pct", "eval/return_mean"):
-        val = summary.get(key)
+    val = _finite(summary.get("eval/final_return_mean"))
+    if val is not None:
+        return val, ""
+
+    try:
+        history = run.history(keys=["charts/episodic_return"], pandas=False)
+        values = [
+            v
+            for v in (_finite(row.get("charts/episodic_return")) for row in history)
+            if v is not None
+        ]
+        if values:
+            recent = values[-SUMMARY_WINDOW:]
+            return sum(recent) / len(recent), ""
+    except Exception:
+        pass
+
+    for key, note in LEGACY_KEYS:
+        val = _finite(summary.get(key))
         if val is not None:
-            try:
-                if val == val:  # skip NaN
-                    return float(val), ""
-            except (TypeError, ValueError):
-                pass
+            return val, note
 
     try:
         history = run.history(keys=["train/episode_reward"], pandas=False)
         values = [
-            float(row["train/episode_reward"])
-            for row in history
-            if row.get("train/episode_reward") is not None
+            v
+            for v in (_finite(row.get("train/episode_reward")) for row in history)
+            if v is not None
         ]
         if values:
-            return max(values), "best train/episode_reward"
+            return max(values), "legacy best train/episode_reward"
     except Exception:
         pass
 

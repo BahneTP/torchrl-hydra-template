@@ -140,5 +140,4 @@ episodes and raw rewards.
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [der_atari_jamesbond_2026-07-16_08-20-41](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/h02sdvvw) | ALE/Jamesbond-v5 | `experiment=rainbow/atari100k` | 1 | 100,000 | 183.3 | best train/episode_reward |
-| [der_atari_jamesbond_2026-07-16_10-37-30](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/x85cxocm) | ALE/Jamesbond-v5 | `experiment=rainbow/atari100k` | 1 | 100,000 | 100.0 | best train/episode_reward |
+| — | — | — | — | — | — | No finished runs tagged ``template`` yet — see [W&B table](https://wandb.ai/LatentLab/torchrl-hydra-template/table) |

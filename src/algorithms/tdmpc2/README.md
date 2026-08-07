@@ -142,7 +142,7 @@ curl -sL -o checkpoints/cheetah-run-1.pt \
   "https://huggingface.co/nicklashansen/tdmpc2/resolve/main/dmcontrol/cheetah-run-1.pt"
 python src/eval.py algorithm=tdmpc2 environment=dmc \
   checkpoint.resume_from=$PWD/checkpoints/cheetah-run-1.pt \
-  trainer.accelerator=gpu trainer.num_eval_episodes=10
+  trainer.accelerator=gpu evaluation.final_num_episodes=10
 ```
 
 Verified result with the official `cheetah-run-1.pt` (2023-06-03) through this port:
@@ -154,4 +154,6 @@ Verified result with the official `cheetah-run-1.pt` (2023-06-03) through this p
 
 | Run | Environment | Config | Seed | Frames | Eval return | Notes |
 |-----|-------------|--------|------|--------|-------------|-------|
-| [tdmpc2_dmc_cheetah_run_2026-07-08_12-38-12](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/xsrs44tn) | cheetah | `experiment=tdmpc2/dmc` | 1 | 1,000,000 | 922.3 | best train/episode_reward |
+| [tdmpc2_cheetah-run_2026-08-03_16-09-04](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/nd3ojze5) | cheetah-run | `experiment=tdmpc2/dmc` | 1 | 1,000,000 | 899.7 | — |
+| [tdmpc2_cheetah-run_2026-08-03_16-57-43](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/b1wqk7c2) | cheetah-run | `experiment=tdmpc2/dmc` | 2 | 1,000,000 | 920.4 | — |
+| [tdmpc2_cheetah-run_2026-08-03_19-51-37](https://wandb.ai/LatentLab/torchrl-hydra-template/runs/gxaltszp) | cheetah-run | `experiment=tdmpc2/dmc` | 3 | 1,000,000 | 901.7 | — |

@@ -21,6 +21,9 @@ build/
 .venv/
 venv/
 env/
+# scripts/make_figures.sh builds this one; openrlbenchmark's pins (seaborn,
+# expt, older numpy) are kept away from the training env on purpose.
+.venv-openrlbenchmark/
 
 # Testing & coverage
 .pytest_cache/

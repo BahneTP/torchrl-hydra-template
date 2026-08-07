@@ -5,11 +5,32 @@
 defaults:
   - override /algorithm: ppo
   - override /environment: dmc
+  - override /evaluation: dmc
   - override /logger: wandb
   - _self_
 
+# `evaluation: dmc` — the same protocol as tdmpc2/dmc and dreamer/dmc (every 10k
+# agent steps, 10 episodes, deterministic policy, eval canonical), so the three
+# curves on a task are read off one axis. A completed training episode is a true
+# score here too (no reward clipping, no life-loss truncation), but it is a
+# *stochastic*-policy score, which is not what the other two report.
+#
+# Cost: ~1M extra env steps across this 1M-frame run. Lower the cadence if that
+# matters: `evaluation.every_n_steps=50_000`.
+#
+# Caveat: VecNorm running stats (below) are not checkpointed or shared, so the
+# eval env starts with fresh statistics. DMC observations are well-scaled and
+# the stats converge within the first episodes — measured at 1M steps on
+# cheetah-run, eval sits ~550 against a ~400 training stream, the expected
+# deterministic-policy gap rather than a normalisation artefact.
+evaluation:
+  summary_window: 100
+
 environment:
   task: cheetah-run
+  # No FrameSkipTransform below, so one agent step is one sim step. This must
+  # stay in sync with the transform list or `frames` is wrong.
+  action_repeat: 1
   # PPO-specific observation handling, so it lives here rather than in the
   # shared dmc.yaml stack. VecNorm + ClipTransform implement the cleanRL /
   # "37 details" observation normalization + clipping tricks (values match the

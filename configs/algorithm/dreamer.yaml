@@ -3,10 +3,15 @@ _recursive_: false   # dreamer_config has _target_ but is passed as DictConfig, 
 
 
 # Wrapper Parameters (DreamerAlgorithm)
-# `action_repeat` (must match the env's frame skip) and `benchmark_frames`
-# (the benchmark's scoring cutoff) are properties of the env and benchmark,
-# so they are set per experiment, not here.
+# `action_repeat` (must match the env's frame skip) is a property of the env,
+# so it is set per experiment, not here. The benchmark scoring cutoff is
+# `evaluation.summary_max_step` (see configs/evaluation/).
 train_ratio: 128 # Divides Batch_Size * Batch_Length to determine the number of updates per data collection phase (how many frames till next update)
+# Video diagnostics, in environment frames; 0 disables. Both are a no-op on
+# stacks without an image observation: the world-model video needs a decoder CNN
+# head (DMC Proprio decodes vectors, so it is skipped), and the agent video needs
+# an `image` key to record.
+world_model_video_log_every: 50_000  # truth / reconstruction / open-loop tile
 agent_video_log_every: 50_000  # log agent gameplay video every N environment frames
 agent_video_max_steps: 400      # cap video length (~20s at 20fps, continues across episode resets)
 

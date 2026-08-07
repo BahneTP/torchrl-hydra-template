@@ -5,6 +5,7 @@
 defaults:
   - override /algorithm: tdmpc2
   - override /environment: dmc
+  - override /evaluation: dmc
   - override /trainer: gpu
   - override /logger: wandb
   - _self_

@@ -7,8 +7,11 @@ Each iteration:  collector yields one batch of transitions
 The trainer owns the loop, the collector and the callbacks; everything that
 affects learning lives in the algorithm.
 
-Per-iteration metrics emitted on logging boundaries mirror the torchrl SOTA
-DQN reference (sota-implementations/dqn/dqn_cartpole.py):
+Every completed training episode is logged as its own metric row
+(``charts/train_episodic_return``, mirrored into ``charts/episodic_return``
+when ``evaluation.canonical_source: train``). Windowed aggregates are emitted
+on logging boundaries mirroring the torchrl SOTA DQN reference
+(sota-implementations/dqn/dqn_cartpole.py):
   - ``train/episode_reward``, ``train/episode_length``: mean over episodes
     that completed since the previous log (accumulated across collector
     batches so small ``frames_per_batch`` still reports every episode).
@@ -16,6 +19,10 @@ DQN reference (sota-implementations/dqn/dqn_cartpole.py):
     (current batch).
   - ``time/collect``, ``time/step``, ``time/speed``: collector wait, in-step
     optimisation time, and frames/second for the iteration.
+
+Periodic evaluation runs on ``evaluation.every_n_steps`` boundaries. Everything
+is logged against ``global_step`` in agent steps; algorithms do not get their
+own x-axis.
 """
 from __future__ import annotations
 
@@ -48,6 +55,8 @@ class StepTrainer(BaseTrainer):
 
     def _training_loop(self) -> dict[str, float]:
         log_every = int(self.trainer_cfg.log_every_n_steps)
+        eval_every = int(self.eval_cfg.get("every_n_steps", 0) or 0)
+        eval_episodes = int(self.eval_cfg.get("num_episodes", 0) or 0)
         metrics: dict[str, float] = {}
         # Episode completions can land in any collector batch. With small
         # ``frames_per_batch`` (e.g. DER's 4) almost none coincide with a
@@ -72,47 +81,50 @@ class StepTrainer(BaseTrainer):
             metrics = self.algorithm.step(batch)
             step_time = time.perf_counter() - step_start
 
-            log_step = getattr(self.algorithm, "log_step", self._step)
-            pop = getattr(self.algorithm, "pop_train_metrics", None)
-
-            if pop is None:
-                ep_rewards, ep_lengths, instant = _batch_metrics(batch)
-                pending_episode_rewards.extend(ep_rewards)
-                pending_episode_lengths.extend(ep_lengths)
-            else:
-                instant = {}
+            ep_rewards, ep_lengths, instant = _batch_metrics(batch)
+            self.log_episodes(ep_rewards, ep_lengths, self._step, source="train")
+            pending_episode_rewards.extend(ep_rewards)
+            pending_episode_lengths.extend(ep_lengths)
 
             if self._should_log(log_every, batch_frames):
-                log_metrics = pop() if pop is not None else dict(metrics)
-                if pop is None:
-                    if pending_episode_rewards:
-                        log_metrics["train/episode_reward"] = (
-                            sum(pending_episode_rewards)
-                            / len(pending_episode_rewards)
-                        )
-                        pending_episode_rewards.clear()
-                    if pending_episode_lengths:
-                        log_metrics["train/episode_length"] = (
-                            sum(pending_episode_lengths)
-                            / len(pending_episode_lengths)
-                        )
-                        pending_episode_lengths.clear()
-                    log_metrics.update(instant)
+                # Algorithms may window-average their own losses; that
+                # supplements the last `step()` return and the trainer's episode
+                # accounting, never replaces either.
+                row = dict(metrics)
+                pop = getattr(self.algorithm, "pop_train_metrics", None)
+                if pop is not None:
+                    row.update(pop())
+                if pending_episode_rewards:
+                    row["train/episode_reward"] = (
+                        sum(pending_episode_rewards) / len(pending_episode_rewards)
+                    )
+                    pending_episode_rewards.clear()
+                if pending_episode_lengths:
+                    row["train/episode_length"] = (
+                        sum(pending_episode_lengths) / len(pending_episode_lengths)
+                    )
+                    pending_episode_lengths.clear()
+                row.update(instant)
                 total_time = collect_time + step_time
-                log_metrics["time/collect"] = collect_time
-                log_metrics["time/step"] = step_time
-                log_metrics["time/speed"] = (
+                row["time/collect"] = collect_time
+                row["time/step"] = step_time
+                row["time/speed"] = (
                     batch_frames / total_time if total_time > 0 else 0.0
                 )
+                self.log_metrics(row, self._step)
                 fire_callbacks(
                     TrainerEvent.ON_STEP_END,
                     self.callbacks,
-                    metrics=log_metrics,
-                    step=log_step,
+                    metrics=row,
+                    step=self._step,
                 )
 
-        if hasattr(self.algorithm, "finalize_metrics"):
-            self.algorithm.finalize_metrics()
+            if (
+                eval_every > 0
+                and eval_episodes > 0
+                and self._should_log(eval_every, batch_frames)
+            ):
+                self.run_evaluation(eval_episodes, step=self._step)
 
         return metrics
 
