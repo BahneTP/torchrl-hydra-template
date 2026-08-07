@@ -14,6 +14,32 @@ from tensordict import TensorDictBase
 from torchrl.envs.transforms import Transform
 
 
+class NoopResetEnv(gym.Wrapper):
+    """Start real games from a randomized state using 1..noop_max NOOPs."""
+
+    def __init__(self, env: gym.Env, noop_max: int = 30) -> None:
+        super().__init__(env)
+        self.noop_max = noop_max
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[Any, dict[str, Any]]:
+        observation, info = self.env.reset(seed=seed, options=options)
+        noops = (
+            int(self.np_random.integers(1, self.noop_max + 1))
+            if self.noop_max > 0
+            else 0
+        )
+        for _ in range(noops):
+            observation, _, terminated, truncated, info = self.env.step(0)
+            if terminated or truncated:
+                observation, info = self.env.reset(options=options)
+        return observation, info
+
+
 class MaxAndSkipEnv(gym.Wrapper):
     """Repeat actions and max-pool the final two raw Atari frames."""
 

@@ -16,20 +16,20 @@ gym_kwargs:
   categorical_action_encoding: false
 
 # Max-and-skip must sit inside EpisodicLifeEnv so life loss is checked after
-# each aggregated agent step (not on every raw ALE frame). Soft reset then
-# issues one NOOP through max-and-skip before the TorchRL transform stack.
+# each aggregated agent step (not on every raw ALE frame). Gym-level no-ops sit
+# between them: real game resets get up to 30 no-op agent steps (up to 120 raw
+# frames), but life-loss soft resets do not trigger random no-ops.
 gymnasium_wrappers:
   - _target_: src.environments.atari_wrappers.MaxAndSkipEnv
     skip: 4
+  - _target_: src.environments.atari_wrappers.NoopResetEnv
+    noop_max: 30
   - _target_: src.environments.atari_wrappers.EpisodicLifeEnv
 
-# TorchRL random no-ops, 84x84 grayscale frames stacked 4 deep, and training
+# Gym-level random no-ops, 84x84 grayscale frames stacked 4 deep, and training
 # rewards clipped to {-1, 0, 1} (SignTransform, placed after RewardSum so
 # logged episode returns stay unclipped).
 transforms:
-  - _target_: torchrl.envs.NoopResetEnv
-    noops: 30
-    random: true
   - _target_: torchrl.envs.ToTensorImage
   - _target_: torchrl.envs.GrayScale
   - _target_: torchrl.envs.Resize
