@@ -4,8 +4,9 @@
 #
 # Campus/Docker DNS sometimes refuses Anthropic lookups, and IPv6 often
 # resolves but cannot connect. Pin Anthropic hosts to current IPv4 via
-# Cloudflare DNS-over-HTTPS (bypasses the broken resolver), and prefer
-# public DNS for everything else.
+# Cloudflare DNS-over-HTTPS (HTTPS:443 works even when UDP:53 to public
+# resolvers is blocked — do NOT rewrite /etc/resolv.conf with 1.1.1.1 /
+# 8.8.8.8; that breaks github.com and everything else on firewalled nets).
 set -euo pipefail
 
 MARKER_BEGIN="# BEGIN claude-dns-fix"
@@ -53,22 +54,18 @@ fi
 sudo cp "$tmp_hosts" /etc/hosts
 rm -f "$tmp_hosts"
 
-# --- /etc/resolv.conf: prefer reliable public DNS ---
-# Docker stops regenerating once this file is modified.
-if [[ -f /etc/resolv.conf ]]; then
+# Strip a previous broken prefix of public nameservers if present. Campus
+# networks often block UDP/53 to 1.1.1.1 and 8.8.8.8; glibc then times out
+# before falling through to the working Docker/campus resolvers.
+if [[ -f /etc/resolv.conf ]] && grep -q 'Prefixed by .devcontainer/fix-claude-dns.sh' /etc/resolv.conf; then
   tmp_resolv="$(mktemp)"
-  {
-    echo "# Prefixed by .devcontainer/fix-claude-dns.sh for Claude Code reliability"
-    echo "nameserver 1.1.1.1"
-    echo "nameserver 8.8.8.8"
-    # Keep existing entries (deduped) as fallbacks
-    awk '
-      /^nameserver[ \t]+(1\.1\.1\.1|8\.8\.8\.8)([ \t]|$)/ { next }
-      { print }
-    ' /etc/resolv.conf
-  } >"$tmp_resolv"
+  awk '
+    /^# Prefixed by \.devcontainer\/fix-claude-dns\.sh/ { next }
+    /^nameserver[ \t]+(1\.1\.1\.1|8\.8\.8\.8)([ \t]|$)/ { next }
+    { print }
+  ' /etc/resolv.conf >"$tmp_resolv"
   sudo cp "$tmp_resolv" /etc/resolv.conf
   rm -f "$tmp_resolv"
 fi
 
-echo "claude-dns-fix: pinned ${HOSTS[*]} to IPv4 and preferred public DNS"
+echo "claude-dns-fix: pinned ${HOSTS[*]} to IPv4 (left system resolvers alone)"

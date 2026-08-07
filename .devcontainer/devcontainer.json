@@ -45,8 +45,9 @@
         "NODE_OPTIONS": "--dns-result-order=ipv4first"
     },
     "remoteUser": "vscode",
-    // Refresh Anthropic IPv4 hosts + public DNS on every attach so intermittent
-    // campus DNS REFUSED / broken IPv6 does not break Claude Code login.
+    // Refresh Anthropic IPv4 /etc/hosts pins on every attach (DoH lookup) so
+    // intermittent campus DNS REFUSED / broken IPv6 does not break Claude Code.
+    // Does not rewrite resolv.conf — public UDP DNS is often firewalled here.
     "postStartCommand": "bash .devcontainer/fix-claude-dns.sh"
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
     // "forwardPorts": [],
