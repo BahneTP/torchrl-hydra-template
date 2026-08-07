@@ -124,6 +124,7 @@ class BaseTrainer(ABC):
             )
 
         self.train_env = make_env()
+        self.train_env.set_seed(int(self.trainer_cfg.seed))
         self.algorithm.setup(make_env)
 
     def start(self) -> None:
