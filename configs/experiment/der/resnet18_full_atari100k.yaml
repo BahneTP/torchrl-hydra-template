@@ -1,0 +1,14 @@
+# @package _global_
+# DER with an ImageNet-pretrained ResNet-18 encoder, full fine-tuning.
+defaults:
+  - /experiment/der/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: resnet18
+  resnet18_weights: DEFAULT
+  resnet18_variant: resnet_layer3
+  transfer_mode: full_finetune
+  encoder_lr: 1.0e-6
+  adapter_lr: 1.0e-4
+  freeze_encoder_bn: true

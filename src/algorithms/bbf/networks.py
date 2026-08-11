@@ -209,3 +209,46 @@ class BBFNetwork(nn.Module):
             pixels = pixels.unsqueeze(0)
         q = self.q_values_from_logits(self.q_logits(self.encode(pixels)))
         return q.squeeze(0) if squeeze else q
+
+
+class SACBBFNetwork(BBFNetwork):
+    """BBF backbone with an additional discrete policy head for SAC-BBF."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        flat_dim = int(math.prod(self.latent_shape))
+        self.policy_projection = nn.Linear(flat_dim, self.projection.out_features)
+        self.predict_policy = nn.Linear(self.projection.out_features, self.projection.out_features)
+        self.policy = nn.Linear(self.projection.out_features, self.num_actions)
+        self._log_alpha = nn.Parameter(torch.zeros(()))
+        self.policy_projection.apply(init_xavier)
+        self.predict_policy.apply(init_xavier)
+        self.policy.apply(init_xavier)
+
+    def entropy_scale(self) -> torch.Tensor:
+        return self._log_alpha.exp()
+
+    def policy_logits_from_latent(self, latent: torch.Tensor) -> torch.Tensor:
+        h = F.relu(self.policy_projection(latent.flatten(1)))
+        return self.policy(h)
+
+    def policy_logits(self, pixels: torch.Tensor) -> torch.Tensor:
+        squeeze = pixels.dim() == 3
+        if squeeze:
+            pixels = pixels.unsqueeze(0)
+        logits = self.policy_logits_from_latent(self.encode(pixels))
+        return logits.squeeze(0) if squeeze else logits
+
+    def sac_project(self, latent: torch.Tensor) -> torch.Tensor:
+        flat = latent.flatten(1)
+        return torch.cat([self.project(latent), self.policy_projection(flat)], dim=-1)
+
+    def sac_predict(self, latent: torch.Tensor) -> torch.Tensor:
+        flat = latent.flatten(1)
+        return torch.cat(
+            [
+                self.predict(self.project(latent)),
+                self.predict_policy(self.policy_projection(flat)),
+            ],
+            dim=-1,
+        )

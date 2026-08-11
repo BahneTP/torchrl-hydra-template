@@ -1,0 +1,13 @@
+# @package _global_
+# DER with a DINOv2 ViT-S/14 encoder and attentive probing from block 3 features.
+defaults:
+  - /experiment/der/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: dinov2_vits14
+  dinov2_weights: models/dinov2_vits14_pretrain.pth
+  dinov2_output_block: 3
+  transfer_mode: attentive_probe
+  encoder_lr: 0.0
+  adapter_lr: 1.0e-4

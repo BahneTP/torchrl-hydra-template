@@ -1,0 +1,16 @@
+# @package _global_
+# DER with a DINOv2 ViT-S/14 encoder and LoRA adapters from block 3 features.
+defaults:
+  - /experiment/der/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: dinov2_vits14
+  dinov2_weights: models/dinov2_vits14_pretrain.pth
+  dinov2_output_block: 3
+  transfer_mode: lora
+  encoder_lr: 1.0e-4
+  adapter_lr: 1.0e-4
+  lora_rank: 1
+  lora_alpha: 2.0
+  lora_dropout: 0.0

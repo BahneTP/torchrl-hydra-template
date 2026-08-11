@@ -236,16 +236,22 @@ class BaseTrainer(ABC):
         max_step = self.eval_cfg.get("summary_max_step", None)
         if max_step is not None:
             episodes = [(s, r) for s, r in episodes if s <= int(max_step)]
-        if not episodes:
-            return {}
-        window = int(self.eval_cfg.get("summary_window", 100) or 100)
-        recent = [r for _, r in episodes[-window:]]
-        t = torch.tensor(recent, dtype=torch.float32)
-        return {
-            "eval/final_return_mean": t.mean().item(),
-            "eval/final_return_std": t.std().item() if len(recent) > 1 else 0.0,
-            "eval/final_return_episodes": float(len(recent)),
-        }
+        summary_metrics = {}
+        if episodes:
+            window = int(self.eval_cfg.get("summary_window", 100) or 100)
+            recent = [r for _, r in episodes[-window:]]
+            t = torch.tensor(recent, dtype=torch.float32)
+            summary_metrics.update(
+                {
+                    "eval/final_return_mean": t.mean().item(),
+                    "eval/final_return_std": t.std().item() if len(recent) > 1 else 0.0,
+                    "eval/final_return_episodes": float(len(recent)),
+                }
+            )
+        algorithm_summary = getattr(self.algorithm, "summary_metrics", None)
+        if algorithm_summary is not None:
+            summary_metrics.update(algorithm_summary())
+        return summary_metrics
 
     # --------------------------------------------------------------- evaluation
 

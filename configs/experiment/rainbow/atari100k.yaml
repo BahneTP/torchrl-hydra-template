@@ -21,12 +21,18 @@ environment:
   task: Jamesbond
 
 algorithm:
+  annealing_frames: 2_000
   init_random_frames: 1_600
-  hard_update_freq: 2_000   # target net <- online every N gradient steps
-  replay_capacity: 100_000
-  encoder_type: data_efficient
-  hidden_dim: 256
-  n_steps: 20
+  frames_per_batch: 1
+  num_updates: 1
+  hard_update_freq: 8_000   # target net <- online every N gradient steps
+  replay_capacity: 200_000
+  encoder_type: dqn
+  hidden_dim: 512
+  n_steps: 10
+  adam_eps: 1.5e-4
+  weight_decay: 0.0
+  noisy_std: 0.5
 
 trainer:
   total_frames: 100_000

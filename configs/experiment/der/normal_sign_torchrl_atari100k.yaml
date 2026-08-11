@@ -1,0 +1,6 @@
+# @package _global_
+# Normal DER, SignTransform rewards.
+defaults:
+  - /experiment/der/atari100k
+  - override /environment: atari100k
+  - _self_

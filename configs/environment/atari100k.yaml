@@ -42,7 +42,7 @@ transforms:
     N: 4
     dim: -3
   - _target_: torchrl.envs.RewardSum
-  - _target_: torchrl.envs.SignTransform
-    in_keys: [reward]
+  # - _target_: torchrl.envs.SignTransform
+  #   in_keys: [reward]
   - _target_: torchrl.envs.StepCounter
     max_steps: 27000

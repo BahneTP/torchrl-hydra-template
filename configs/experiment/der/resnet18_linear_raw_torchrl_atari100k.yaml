@@ -1,0 +1,5 @@
+# @package _global_
+# ResNet-18 linear probing, raw rewards.
+defaults:
+  - /experiment/der/resnet18_linear_atari100k
+  - _self_

@@ -1,0 +1,19 @@
+# @package _global_
+# Discrete SAC-BBF on Atari-100k.
+defaults:
+  - override /algorithm: sac_bbf
+  - override /environment: atari100k
+  - override /evaluation: atari100k
+  - override /trainer: gpu
+  - override /logger: wandb
+  - _self_
+
+exp_name: sac_bbf
+
+environment:
+  task: Jamesbond
+
+trainer:
+  total_frames: 100_000
+  seed: 1
+  num_envs: 1

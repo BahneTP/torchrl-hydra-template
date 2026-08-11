@@ -1,0 +1,6 @@
+# @package _global_
+# ResNet-18 linear probing, SignTransform rewards.
+defaults:
+  - /experiment/der/resnet18_linear_atari100k
+  - override /environment: atari100k
+  - _self_

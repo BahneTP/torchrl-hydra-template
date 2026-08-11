@@ -8,6 +8,7 @@ checkpoints/
 
 # Weights & Biases (root-level fallback)
 wandb/
+configs/logger/wandb.yaml
 
 # Python
 __pycache__/

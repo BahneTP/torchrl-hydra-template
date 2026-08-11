@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from types import MethodType
-from typing import Callable, Literal
+from typing import Callable, Literal, Sequence
 
 import torch
 import torch.nn as nn
@@ -46,6 +46,10 @@ from torchrl.modules import (
 from torchrl.objectives import DistributionalDQNLoss, DQNLoss, HardUpdate
 
 from src.algorithms.dqn.dqn import DQNAlgorithm
+from src.components.transfer_learning import AttentiveProbe
+from src.components.transfer_learning import DINOv2ViTS14Encoder
+from src.components.transfer_learning import ResNet18Encoder, ResNet18Variant
+from src.components.transfer_learning import configure_encoder_transfer
 from src.components.exploration import FixedEpsilonGreedy
 
 # Conv encoder shapes. "dqn" follows the BBF/Dopamine Atari encoder with
@@ -67,7 +71,6 @@ _ENCODER_CNN_KWARGS: dict[str, dict] = {
         "activation_class": nn.ReLU,
     },
 }
-
 
 class _FlattenFeatures(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -210,6 +213,164 @@ class InclusiveDoneMultiStepTransform(MultiStepTransform):
         return padded.unfold(-1, self.n_steps, 1).bool().any(dim=-1)
 
 
+class _TransferRainbowQNet(nn.Module):
+    """Rainbow head on top of a spatial transfer-learning encoder."""
+
+    def __init__(
+        self,
+        *,
+        obs_shape: tuple[int, ...],
+        num_actions: int,
+        hidden_dim: int,
+        distributional: bool,
+        num_atoms: int,
+        dueling: bool,
+        layer_class: type[nn.Module],
+        layer_kwargs: dict | None,
+        encoder_type: str,
+        weights: str | None,
+        variant: ResNet18Variant,
+        dinov2_output_block: int,
+        transfer_layer_mix: bool,
+        resnet18_mix_layers: Sequence[int] | None,
+        dinov2_mix_blocks: Sequence[int] | None,
+        transfer_mode: str,
+        freeze_encoder_bn: bool,
+        lora_rank: int,
+        lora_alpha: float,
+        lora_dropout: float,
+    ) -> None:
+        super().__init__()
+        self.num_actions = num_actions
+        self.num_atoms = num_atoms
+        self.distributional = distributional
+        self.dueling = dueling
+        self.transfer_layer_mix = transfer_layer_mix
+        if encoder_type == "resnet18":
+            self.encoder = ResNet18Encoder(
+                input_channels=obs_shape[0],
+                weights=weights,
+                variant=variant,
+                output_mode="layer_mix" if transfer_layer_mix else "single_layer",
+                mix_layers=resnet18_mix_layers,
+            )
+            self._mix_metric_prefix = "transfer_layer_mix/resnet_layer"
+            self._mix_indices = tuple(int(layer) for layer in (resnet18_mix_layers or range(1, 5)))
+        elif encoder_type == "dinov2_vits14":
+            self.encoder = DINOv2ViTS14Encoder(
+                input_channels=obs_shape[0],
+                weights=weights,
+                output_block=dinov2_output_block,
+                output_mode="layer_mix" if transfer_layer_mix else "single_block",
+                mix_blocks=dinov2_mix_blocks,
+            )
+            self._mix_metric_prefix = "transfer_layer_mix/dinov2_block"
+            self._mix_indices = tuple(int(block) for block in (dinov2_mix_blocks or range(1, 13)))
+        else:
+            raise ValueError(f"Unsupported transfer encoder_type={encoder_type!r}")
+        configure_encoder_transfer(
+            self.encoder,
+            transfer_mode=transfer_mode,
+            freeze_encoder_bn=freeze_encoder_bn,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+        )
+        with torch.no_grad():
+            latent = self.encoder(torch.zeros(1, *obs_shape))
+        kwargs = layer_kwargs or {}
+        if transfer_layer_mix:
+            latents = list(latent)
+            self.mix_logits = nn.Parameter(torch.zeros(len(latents)))
+            self.projection = nn.ModuleList(
+                [
+                    self._make_projection(
+                        spatial_latent=item,
+                        hidden_dim=hidden_dim,
+                        transfer_mode=transfer_mode,
+                        layer_class=layer_class,
+                        layer_kwargs=kwargs,
+                    )
+                    for item in latents
+                ]
+            )
+        else:
+            self.mix_logits = None
+            self.projection = self._make_projection(
+                spatial_latent=latent,
+                hidden_dim=hidden_dim,
+                transfer_mode=transfer_mode,
+                layer_class=layer_class,
+                layer_kwargs=kwargs,
+            )
+        head_out = num_actions * num_atoms if distributional else num_actions
+        self.advantage = layer_class(hidden_dim, head_out, **kwargs)
+        self.value = None
+        if dueling:
+            value_out = num_atoms if distributional else 1
+            self.value = layer_class(hidden_dim, value_out, **kwargs)
+
+    def _make_projection(
+        self,
+        *,
+        spatial_latent: torch.Tensor,
+        hidden_dim: int,
+        transfer_mode: str,
+        layer_class: type[nn.Module],
+        layer_kwargs: dict,
+    ) -> nn.Module:
+        if transfer_mode == "attentive_probe":
+            return AttentiveProbe(
+                in_channels=int(spatial_latent.shape[1]),
+                out_features=hidden_dim,
+                num_tokens=int(spatial_latent.flatten(2).shape[-1]),
+            )
+        in_features = int(spatial_latent.flatten(1).shape[-1])
+        return nn.Sequential(
+            nn.Flatten(),
+            layer_class(in_features, hidden_dim, **layer_kwargs),
+        )
+
+    def _project(self, latent: torch.Tensor | list[torch.Tensor]) -> torch.Tensor:
+        if not self.transfer_layer_mix:
+            return self.projection(latent)
+        assert isinstance(self.projection, nn.ModuleList)
+        assert self.mix_logits is not None
+        latents = list(latent)
+        weights = self.mix_logits.softmax(dim=0).to(dtype=latents[0].dtype, device=latents[0].device)
+        projected = [
+            projection(item) * weights[index]
+            for index, (projection, item) in enumerate(zip(self.projection, latents, strict=True))
+        ]
+        return torch.stack(projected, dim=0).sum(dim=0)
+
+    def layer_mix_metrics(self) -> dict[str, float]:
+        if self.mix_logits is None:
+            return {}
+        weights = self.mix_logits.softmax(dim=0).detach().cpu()
+        return {
+            f"{self._mix_metric_prefix}_{index:02d}": float(weight)
+            for index, weight in zip(self._mix_indices, weights, strict=True)
+        }
+
+    def forward(self, pixels: torch.Tensor) -> torch.Tensor:
+        h = F.relu(self._project(self.encoder(pixels)))
+        if self.distributional:
+            adv = self.advantage(h).view(-1, self.num_actions, self.num_atoms)
+            if self.dueling and self.value is not None:
+                value = self.value(h).view(-1, 1, self.num_atoms)
+                logits = value + adv - adv.mean(dim=1, keepdim=True)
+            else:
+                logits = adv
+            return logits.transpose(1, 2)
+
+        q_values = self.advantage(h)
+        if self.dueling and self.value is not None:
+            value = self.value(h)
+            q_values = value + q_values - q_values.mean(dim=1, keepdim=True)
+        return q_values
+
+
 class _CnnRainbowQNet(nn.Module):
     """Rainbow head for explicit layer classes that TorchRL cannot lazy-build."""
 
@@ -295,8 +456,29 @@ class RainbowAlgorithm(DQNAlgorithm):
         num_updates: int = 4,
         hard_update_freq: int = 8_000,
         replay_capacity: int = 1_000_000,
-        encoder_type: Literal["dqn", "data_efficient"] = "dqn",
+        encoder_type: Literal["dqn", "data_efficient", "resnet18", "dinov2_vits14"] = "dqn",
         hidden_dim: int = 512,
+        resnet18_weights: str | None = None,
+        resnet18_variant: ResNet18Variant = "resnet_layer3_reduced",
+        dinov2_weights: str | None = "models/dinov2_vits14_pretrain.pth",
+        dinov2_output_block: int = 3,
+        transfer_layer_mix: bool = False,
+        resnet18_mix_layers: Sequence[int] | None = None,
+        dinov2_mix_blocks: Sequence[int] | None = None,
+        transfer_mode: Literal[
+            "none",
+            "full_finetune",
+            "linear_probe",
+            "attentive_probe",
+            "lora",
+        ] = "none",
+        encoder_lr: float | None = None,
+        adapter_lr: float | None = None,
+        encoder_lr_scale: float | None = None,
+        freeze_encoder_bn: bool = False,
+        lora_rank: int = 1,
+        lora_alpha: float = 2.0,
+        lora_dropout: float = 0.0,
         # --- Wang et al. (2016), "Dueling Network Architectures for Deep RL" ---
         dueling: bool = True,
         # --- Fortunato et al. (2018), "Noisy Networks for Exploration" ---------
@@ -348,6 +530,21 @@ class RainbowAlgorithm(DQNAlgorithm):
         self.replay_capacity = replay_capacity
         self.encoder_type = encoder_type
         self.hidden_dim = hidden_dim
+        self.resnet18_weights = resnet18_weights
+        self.resnet18_variant = resnet18_variant
+        self.dinov2_weights = dinov2_weights
+        self.dinov2_output_block = dinov2_output_block
+        self.transfer_layer_mix = transfer_layer_mix
+        self.resnet18_mix_layers = resnet18_mix_layers
+        self.dinov2_mix_blocks = dinov2_mix_blocks
+        self.transfer_mode = transfer_mode
+        self.encoder_lr = encoder_lr
+        self.adapter_lr = adapter_lr
+        self.encoder_lr_scale = encoder_lr_scale
+        self.freeze_encoder_bn = freeze_encoder_bn
+        self.lora_rank = lora_rank
+        self.lora_alpha = lora_alpha
+        self.lora_dropout = lora_dropout
         self.dueling = dueling
         self.noisy = noisy
         self.noisy_std = noisy_std
@@ -396,13 +593,14 @@ class RainbowAlgorithm(DQNAlgorithm):
         )
         out_features = (self.num_atoms, num_actions) if self.distributional else num_actions
         out_features_value = (self.num_atoms, 1) if self.distributional else 1
-        cnn_kwargs = dict(_ENCODER_CNN_KWARGS[self.encoder_type])
-        same_padding = bool(cnn_kwargs.pop("same_padding", False))
-        if same_padding:
-            q_net = _CnnRainbowQNet(
+        if self.encoder_type in {"resnet18", "dinov2_vits14"}:
+            weights = (
+                self.resnet18_weights
+                if self.encoder_type == "resnet18"
+                else self.dinov2_weights
+            )
+            q_net = _TransferRainbowQNet(
                 obs_shape=obs_shape,
-                cnn_kwargs=cnn_kwargs,
-                same_padding=same_padding,
                 num_actions=num_actions,
                 hidden_dim=self.hidden_dim,
                 distributional=self.distributional,
@@ -410,31 +608,59 @@ class RainbowAlgorithm(DQNAlgorithm):
                 dueling=self.dueling,
                 layer_class=layer_class,
                 layer_kwargs=layer_kwargs,
-            )
-        elif self.dueling:
-            q_net = DuelingCnnDQNet(
-                out_features=out_features,
-                out_features_value=out_features_value,
-                cnn_kwargs=cnn_kwargs,
-                mlp_kwargs={
-                    "num_cells": [self.hidden_dim],
-                    "layer_class": layer_class,
-                    "layer_kwargs": layer_kwargs,
-                },
+                encoder_type=self.encoder_type,
+                weights=weights,
+                variant=self.resnet18_variant,
+                dinov2_output_block=self.dinov2_output_block,
+                transfer_layer_mix=self.transfer_layer_mix,
+                resnet18_mix_layers=self.resnet18_mix_layers,
+                dinov2_mix_blocks=self.dinov2_mix_blocks,
+                transfer_mode=self.transfer_mode,
+                freeze_encoder_bn=self.freeze_encoder_bn,
+                lora_rank=self.lora_rank,
+                lora_alpha=self.lora_alpha,
+                lora_dropout=self.lora_dropout,
             )
         else:
-            cnn = ConvNet(**cnn_kwargs)
-            with torch.no_grad():
-                cnn_out = cnn(torch.zeros(1, *obs_shape))
-            mlp = MLP(
-                in_features=cnn_out.shape[-1],
-                out_features=out_features,
-                num_cells=[self.hidden_dim],
-                activation_class=nn.ReLU,
-                layer_class=layer_class,
-                layer_kwargs=layer_kwargs,
-            )
-            q_net = nn.Sequential(cnn, mlp)
+            cnn_kwargs = dict(_ENCODER_CNN_KWARGS[self.encoder_type])
+            same_padding = bool(cnn_kwargs.pop("same_padding", False))
+            if same_padding:
+                q_net = _CnnRainbowQNet(
+                    obs_shape=obs_shape,
+                    cnn_kwargs=cnn_kwargs,
+                    same_padding=same_padding,
+                    num_actions=num_actions,
+                    hidden_dim=self.hidden_dim,
+                    distributional=self.distributional,
+                    num_atoms=self.num_atoms,
+                    dueling=self.dueling,
+                    layer_class=layer_class,
+                    layer_kwargs=layer_kwargs,
+                )
+            elif self.dueling:
+                q_net = DuelingCnnDQNet(
+                    out_features=out_features,
+                    out_features_value=out_features_value,
+                    cnn_kwargs=cnn_kwargs,
+                    mlp_kwargs={
+                        "num_cells": [self.hidden_dim],
+                        "layer_class": layer_class,
+                        "layer_kwargs": layer_kwargs,
+                    },
+                )
+            else:
+                cnn = ConvNet(**cnn_kwargs)
+                with torch.no_grad():
+                    cnn_out = cnn(torch.zeros(1, *obs_shape))
+                mlp = MLP(
+                    in_features=cnn_out.shape[-1],
+                    out_features=out_features,
+                    num_cells=[self.hidden_dim],
+                    activation_class=nn.ReLU,
+                    layer_class=layer_class,
+                    layer_kwargs=layer_kwargs,
+                )
+                q_net = nn.Sequential(cnn, mlp)
         q_net = q_net.to(self.device)
         # DuelingCnnDQNet's advantage/value heads are LazyLinear internally
         # (their input size depends on the conv output, which isn't known
@@ -521,12 +747,59 @@ class RainbowAlgorithm(DQNAlgorithm):
         self.optimizer = self._make_optimizer()
 
     def _make_optimizer(self) -> torch.optim.Optimizer:
+        if self.encoder_type not in {"resnet18", "dinov2_vits14"}:
+            return torch.optim.Adam(
+                self.q_actor.parameters(),
+                lr=self.lr,
+                eps=self.adam_eps,
+                weight_decay=self.weight_decay,
+            )
+
+        encoder_params = []
+        adapter_params = []
+        head_params = []
+        for name, parameter in self.q_actor.named_parameters():
+            if not parameter.requires_grad:
+                continue
+            if ".encoder.input_adapter." in name or ".encoder.reducer." in name:
+                adapter_params.append(parameter)
+            elif ".encoder." in name:
+                encoder_params.append(parameter)
+            else:
+                head_params.append(parameter)
+
+        groups = []
+        if encoder_params:
+            encoder_lr = (
+                self.encoder_lr
+                if self.encoder_lr is not None
+                else self.lr * (1.0 if self.encoder_lr_scale is None else self.encoder_lr_scale)
+            )
+            groups.append({"params": encoder_params, "lr": encoder_lr})
+        if adapter_params:
+            groups.append(
+                {
+                    "params": adapter_params,
+                    "lr": self.lr if self.adapter_lr is None else self.adapter_lr,
+                }
+            )
+        if head_params:
+            groups.append({"params": head_params, "lr": self.lr})
         return torch.optim.Adam(
-            self.q_actor.parameters(),
+            groups,
             lr=self.lr,
             eps=self.adam_eps,
             weight_decay=self.weight_decay,
         )
+
+    def summary_metrics(self) -> dict[str, float]:
+        for module in self.q_actor.modules():
+            metrics_fn = getattr(module, "layer_mix_metrics", None)
+            if metrics_fn is not None:
+                metrics = metrics_fn()
+                if metrics:
+                    return metrics
+        return {}
 
     # ------------------------------------------------------------------
     # Training
@@ -589,13 +862,10 @@ class RainbowAlgorithm(DQNAlgorithm):
     # ------------------------------------------------------------------
 
     def get_policy(self):
-        # NoisyLinear reads `nn.Module.training` to decide whether to sample
-        # fresh weight noise or use the mean weights; `.eval()` also disables
-        # dropout-like behaviour in any other submodule. This mutates shared
-        # state, which periodic evaluation would otherwise leak into training
-        # — `BaseTrainer.evaluate()` snapshots and restores every algorithm
-        # module's `.training` flag around the rollout.
+        # Keep the network in eval mode for non-noisy modules, but preserve the
+        # DER/Dopamine eval-noise option by leaving NoisyLinear layers stochastic.
         self.q_actor.eval()
+        _set_noisy_linear_training(self.q_actor, self.eval_noise)
         return TensorDictSequential(
             self.q_actor,
             FixedEpsilonGreedy(self.action_spec, self.eps_eval),
@@ -618,6 +888,12 @@ def _sample_noisy_linear_on_forward(module: nn.Module) -> None:
     for child in module.modules():
         if isinstance(child, NoisyLinear):
             child.forward = MethodType(forward_with_fresh_noise, child)
+
+
+def _set_noisy_linear_training(module: nn.Module, training: bool) -> None:
+    for child in module.modules():
+        if isinstance(child, NoisyLinear):
+            child.train(training)
 
 
 def _squeeze_policy_singletons(batch) -> None:

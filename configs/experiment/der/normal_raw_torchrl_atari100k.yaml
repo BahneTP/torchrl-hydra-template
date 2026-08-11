@@ -1,0 +1,5 @@
+# @package _global_
+# Normal DER, raw rewards.
+defaults:
+  - /experiment/der/atari100k
+  - _self_

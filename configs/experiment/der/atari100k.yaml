@@ -1,0 +1,36 @@
+# @package _global_
+# Data-Efficient Rainbow (DER) on Atari-100k.
+defaults:
+  - override /algorithm: rainbow
+  - override /environment: atari100k_der
+  - override /evaluation: atari100k
+  - override /trainer: gpu
+  - override /logger: wandb
+  - _self_
+
+environment:
+  task: Jamesbond
+
+algorithm:
+  eps_start: 1.0
+  eps_end: 0.01
+  eps_eval: 0.001
+  annealing_frames: 2_000
+  init_random_frames: 1_600
+  hard_update_freq: 8_000
+  replay_capacity: 200_000
+  encoder_type: dqn
+  hidden_dim: 512
+  n_steps: 10
+  adam_eps: 1.5e-4
+  weight_decay: 0.0
+  noisy_std: 0.5
+  transfer_layer_mix: false
+  resnet18_mix_layers: [1, 2, 3, 4]
+  dinov2_mix_blocks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+trainer:
+  total_frames: 100_000
+  seed: 1
+  num_envs: 1
+  final_eval_episodes: 100
