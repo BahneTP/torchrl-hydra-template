@@ -49,9 +49,7 @@ v_max: 10.0
 # Prioritized experience replay (Schaul et al. 2016)
 prioritized: true
 prb_alpha: 0.5
-prb_beta_start: 0.4
-prb_beta_end: 1.0
-prb_beta_frames: 100_000
+prb_beta: 0.5
 prb_eps: 1e-6
 
 # Multi-step returns

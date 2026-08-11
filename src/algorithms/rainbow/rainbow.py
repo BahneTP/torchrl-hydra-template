@@ -518,9 +518,7 @@ class RainbowAlgorithm(DQNAlgorithm):
         # --- Schaul et al. (2016), "Prioritized Experience Replay" -------------
         prioritized: bool = True,
         prb_alpha: float = 0.5,
-        prb_beta_start: float = 0.4,
-        prb_beta_end: float = 1.0,
-        prb_beta_frames: int = 100_000,
+        prb_beta: float = 0.5,
         prb_eps: float = 1e-6,
         # --- Multi-step returns (Sutton 1988; used in Rainbow) -----------------
         n_steps: int = 3,
@@ -577,9 +575,7 @@ class RainbowAlgorithm(DQNAlgorithm):
         self.v_max = v_max
         self.prioritized = prioritized
         self.prb_alpha = prb_alpha
-        self.prb_beta_start = prb_beta_start
-        self.prb_beta_end = prb_beta_end
-        self.prb_beta_frames = prb_beta_frames
+        self.prb_beta = prb_beta
         self.prb_eps = prb_eps
         self.n_steps = n_steps
         self.adam_eps = adam_eps
@@ -732,9 +728,9 @@ class RainbowAlgorithm(DQNAlgorithm):
         )
 
         # 4. Replay buffer. Prioritized sampling (Schaul et al. 2016) biases
-        #    sampling toward high-TD-error transitions; the importance-sampling
-        #    exponent beta is annealed 0.4 -> 1.0 in step() below, following
-        #    the paper. Multi-step returns (as used in Rainbow; n-step
+        #    sampling toward high-TD-error transitions. Importance-sampling
+        #    uses fixed beta=0.5. Multi-step returns (as used in Rainbow;
+        #    n-step
         #    bootstrapping traces to Sutton 1988) are applied at write time via
         #    `MultiStepTransform`, which is unbiased by collector-batch
         #    boundaries (unlike the collector-side `MultiStep` postproc).
@@ -743,7 +739,7 @@ class RainbowAlgorithm(DQNAlgorithm):
         if self.prioritized:
             self.replay_buffer = TensorDictPrioritizedReplayBuffer(
                 alpha=self.prb_alpha,
-                beta=self.prb_beta_start,
+                beta=self.prb_beta,
                 eps=self.prb_eps,
                 storage=storage,
                 transform=transform,
@@ -757,7 +753,11 @@ class RainbowAlgorithm(DQNAlgorithm):
         #    `double_dqn` toggle (van Hasselt et al. 2016).
         if self.distributional:
             self.loss_module = DistributionalDQNLoss(
-                self.q_actor, gamma=self.gamma, delay_value=True
+                self.q_actor,
+                gamma=self.gamma,
+                delay_value=True,
+                reduction="none",
+                use_prioritized_weights=False,
             )
         else:
             self.loss_module = DQNLoss(
@@ -765,6 +765,8 @@ class RainbowAlgorithm(DQNAlgorithm):
                 loss_function="l2",
                 delay_value=True,
                 double_dqn=self.double_dqn,
+                reduction="none",
+                use_prioritized_weights=False,
             )
             self.loss_module.make_value_estimator(gamma=self.gamma)
         self.loss_module = self.loss_module.to(self.device)
@@ -854,7 +856,11 @@ class RainbowAlgorithm(DQNAlgorithm):
             steps_key = "steps_to_next_obs"
             if steps_key in sample.keys() and sample.get(steps_key).dim() == 1:
                 sample.set(steps_key, sample.get(steps_key).unsqueeze(-1))
-            loss = self.loss_module(sample)["loss"]
+            loss_per_sample = self.loss_module(sample)["loss"]
+            priority_weight = (
+                sample.get("priority_weight") if self.prioritized else None
+            )
+            loss = _batch_normalized_priority_loss(loss_per_sample, priority_weight)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -866,7 +872,6 @@ class RainbowAlgorithm(DQNAlgorithm):
                 # Schaul et al. (2016): re-prioritize sampled transitions from
                 # the per-sample TD error the loss module wrote into `sample`.
                 self.replay_buffer.update_tensordict_priority(sample)
-                self._anneal_prb_beta()
 
             losses[j] = loss.detach()
 
@@ -874,15 +879,6 @@ class RainbowAlgorithm(DQNAlgorithm):
             "train/q_loss": losses.mean().item(),
             "train/epsilon": float(self.greedy_module.eps) if self.greedy_module else 0.0,
         }
-
-    def _anneal_prb_beta(self) -> None:
-        """Linearly anneal the PER importance-sampling exponent (Schaul et al. 2016)."""
-        if self.prb_beta_frames <= 0:
-            return
-        fraction = min(1.0, self._collected_frames / self.prb_beta_frames)
-        self.replay_buffer.sampler.beta = (
-            self.prb_beta_start + (self.prb_beta_end - self.prb_beta_start) * fraction
-        )
 
     # ------------------------------------------------------------------
     # Policy access
@@ -921,6 +917,17 @@ def _set_noisy_linear_training(module: nn.Module, training: bool) -> None:
     for child in module.modules():
         if isinstance(child, NoisyLinear):
             child.train(training)
+
+
+def _batch_normalized_priority_loss(
+    loss: torch.Tensor,
+    priority_weight: torch.Tensor | None,
+) -> torch.Tensor:
+    if priority_weight is None:
+        return loss.mean()
+    weight = priority_weight.to(device=loss.device, dtype=loss.dtype).reshape_as(loss)
+    weight = weight / weight.max().clamp_min(torch.finfo(weight.dtype).eps)
+    return (loss * weight).mean()
 
 
 def _squeeze_policy_singletons(batch) -> None:
