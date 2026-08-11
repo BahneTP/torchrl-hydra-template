@@ -34,6 +34,7 @@ dueling: true
 # Noisy networks (Fortunato et al. 2018)
 noisy: true
 noisy_std: 0.1
+noisy_init: torchrl
 eval_noise: true
 
 # Double Q-learning (van Hasselt et al. 2016) — only applies when distributional=false

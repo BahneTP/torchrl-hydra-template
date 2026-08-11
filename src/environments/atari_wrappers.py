@@ -1,6 +1,6 @@
 # MaxAndSkipEnv / EpisodicLifeEnv adapted from https://github.com/DLR-RM/stable-baselines3
-# (stable_baselines3/common/atari_wrappers.py), MIT license. Changes: life-loss
-# reset advances with one NOOP step instead of FireReset.
+# (stable_baselines3/common/atari_wrappers.py), MIT license. Changes: configurable
+# life-loss handling for BBF-style NOOP resets and Google DER continuation.
 """Atari preprocessing: gym wrappers and TorchRL transforms."""
 from __future__ import annotations
 
@@ -43,10 +43,20 @@ class NoopResetEnv(gym.Wrapper):
 class MaxAndSkipEnv(gym.Wrapper):
     """Repeat actions and max-pool the final two raw Atari frames."""
 
-    def __init__(self, env: gym.Env, skip: int = 4) -> None:
+    def __init__(
+        self,
+        env: gym.Env,
+        skip: int = 4,
+        stop_on_life_loss: bool = False,
+    ) -> None:
         super().__init__(env)
         self.skip = skip
+        self.stop_on_life_loss = stop_on_life_loss
         self._obs_buffer: deque[np.ndarray] = deque(maxlen=2)
+
+    def _lives(self) -> int | None:
+        ale = getattr(self.unwrapped, "ale", None)
+        return int(ale.lives()) if ale is not None else None
 
     def reset(self, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         self._obs_buffer.clear()
@@ -57,12 +67,18 @@ class MaxAndSkipEnv(gym.Wrapper):
         observation = None
         terminated = truncated = False
         info: dict[str, Any] = {}
+        lives = self._lives() if self.stop_on_life_loss else None
         for _ in range(self.skip):
             observation, reward, terminated, truncated, info = self.env.step(action)
             self._obs_buffer.append(observation)
             total_reward += float(reward)
             if terminated or truncated:
                 break
+            if lives is not None:
+                current_lives = self._lives()
+                if current_lives is not None and current_lives < lives:
+                    break
+                lives = current_lives
         if len(self._obs_buffer) == 2:
             observation = np.maximum(self._obs_buffer[0], self._obs_buffer[1])
         return observation, total_reward, terminated, truncated, info
@@ -75,8 +91,9 @@ class EpisodicLifeEnv(gym.Wrapper):
     ``Transform`` without weakening its semantics.
 
     1. **Reset substitution.** On life loss (but not game over), ``reset()``
-       below calls ``self.env.step(0)`` instead of ``self.env.reset()``, so
-       the underlying ALE game keeps running under a "soft" episode boundary.
+       either advances with ``self.env.step(0)`` or returns the life-loss
+       observation without stepping, depending on ``advance_on_life_loss``.
+       In both cases the ALE game keeps running under a soft episode boundary.
        A ``Transform`` cannot do this: ``TransformedEnv._reset()``
        unconditionally calls ``base_env._reset()`` *before* any transform's
        ``_reset`` hook runs, so the real reset has already happened by the
@@ -99,10 +116,13 @@ class EpisodicLifeEnv(gym.Wrapper):
        ``EndOfLifeTransform``.
     """
 
-    def __init__(self, env: gym.Env) -> None:
+    def __init__(self, env: gym.Env, advance_on_life_loss: bool = True) -> None:
         super().__init__(env)
+        self.advance_on_life_loss = advance_on_life_loss
         self.lives = 0
         self.was_real_done = True
+        self._last_observation: Any = None
+        self._last_info: dict[str, Any] = {}
 
     def _lives(self) -> int:
         ale = getattr(self.unwrapped, "ale", None)
@@ -116,18 +136,23 @@ class EpisodicLifeEnv(gym.Wrapper):
     ) -> tuple[Any, dict[str, Any]]:
         if self.was_real_done:
             observation, info = self.env.reset(seed=seed, options=options)
-        else:
+        elif self.advance_on_life_loss:
             # Match BBF-pytorch: advance from the life-loss screen with one
             # NOOP agent action (including the inner action repeat), without
             # resetting the actual ALE game.
             observation, _, terminated, truncated, info = self.env.step(0)
             if terminated or truncated:
                 observation, info = self.env.reset(seed=seed, options=options)
+        else:
+            observation = self._last_observation
+            info = dict(self._last_info)
         self.lives = self._lives()
         return observation, info
 
     def step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         observation, reward, terminated, truncated, info = self.env.step(action)
+        self._last_observation = observation
+        self._last_info = info
         self.was_real_done = bool(terminated or truncated)
         lives = self._lives()
         life_lost = lives < self.lives and lives > 0
@@ -145,8 +170,9 @@ class MaxAndSkipTransform(Transform):
     max-and-skip (see :class:`EpisodicLifeEnv`).
 
     Atari-100k training keeps max-and-skip at the gym level via
-    ``gymnasium_wrappers`` so :class:`EpisodicLifeEnv` wraps it and life-loss
-    is evaluated only after each aggregated agent step.
+    ``gymnasium_wrappers`` so :class:`EpisodicLifeEnv` can wrap it. DER enables
+    raw-frame life checks in :class:`MaxAndSkipEnv`; other presets keep the
+    aggregated-step behavior.
     """
 
     invertible = False

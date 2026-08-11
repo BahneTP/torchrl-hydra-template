@@ -1,7 +1,8 @@
-# Atari-100k DER train environment. Matches atari100k.yaml, but keeps rewards
-# raw during training to match the existing Transfer-Learning DER runs.
+# Atari-100k DER train environment. Rewards stay raw, frame skip stops on life
+# loss, and the soft reset continues without an additional NOOP action.
 task: Jamesbond
 name: ALE/${environment.task}-v5
+action_repeat: 4
 gym_backend: gymnasium
 gym_kwargs:
   frame_skip: 1
@@ -14,9 +15,11 @@ gym_kwargs:
 gymnasium_wrappers:
   - _target_: src.environments.atari_wrappers.MaxAndSkipEnv
     skip: 4
+    stop_on_life_loss: true
   - _target_: src.environments.atari_wrappers.NoopResetEnv
     noop_max: 30
   - _target_: src.environments.atari_wrappers.EpisodicLifeEnv
+    advance_on_life_loss: false
 
 transforms:
   - _target_: torchrl.envs.ToTensorImage

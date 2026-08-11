@@ -79,6 +79,24 @@ class _FlattenFeatures(nn.Module):
         return x.flatten(1)
 
 
+class GoogleDERNoisyLinear(NoisyLinear):
+    """TorchRL NoisyLinear with the parameter initialization used by DER."""
+
+    def reset_parameters(self) -> None:
+        bound = 1 / math.sqrt(self.in_features)
+        nn.init.xavier_uniform_(self.weight_mu)
+        nn.init.constant_(
+            self.weight_sigma,
+            self.std_init / math.sqrt(self.in_features),
+        )
+        if self.bias_mu is not None:
+            nn.init.uniform_(self.bias_mu, -bound, bound)
+            nn.init.constant_(
+                self.bias_sigma,
+                self.std_init / math.sqrt(self.in_features),
+            )
+
+
 def _pair(value: int | tuple[int, int]) -> tuple[int, int]:
     if isinstance(value, tuple):
         return value
@@ -484,6 +502,7 @@ class RainbowAlgorithm(DQNAlgorithm):
         # --- Fortunato et al. (2018), "Noisy Networks for Exploration" ---------
         noisy: bool = True,
         noisy_std: float = 0.1,
+        noisy_init: Literal["torchrl", "google_der"] = "torchrl",
         eval_noise: bool = True,
         # --- van Hasselt et al. (2016), "Deep RL with Double Q-learning" -------
         # Only takes effect when `distributional=False`: `DistributionalDQNLoss`
@@ -548,6 +567,7 @@ class RainbowAlgorithm(DQNAlgorithm):
         self.dueling = dueling
         self.noisy = noisy
         self.noisy_std = noisy_std
+        self.noisy_init = noisy_init
         self.eval_noise = eval_noise
         self.eps_eval = eps_eval
         self.double_dqn = double_dqn
@@ -583,7 +603,14 @@ class RainbowAlgorithm(DQNAlgorithm):
         #    encoder stays plain, matching the paper. Distributional
         #    (Bellemare et al. 2017) reshapes the output to
         #    [*, num_atoms, num_actions] so raw Q-values become per-atom logits.
-        layer_class = NoisyLinear if self.noisy else nn.Linear
+        if self.noisy and self.noisy_init == "google_der":
+            layer_class = GoogleDERNoisyLinear
+        elif self.noisy and self.noisy_init == "torchrl":
+            layer_class = NoisyLinear
+        elif self.noisy:
+            raise ValueError(f"Unknown noisy_init={self.noisy_init!r}")
+        else:
+            layer_class = nn.Linear
         layer_kwargs = (
             {
                 "std_init": self.noisy_std,
