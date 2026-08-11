@@ -12,7 +12,7 @@ SUMMARY_CSV="$RUN_ROOT/summary.csv"
 GAME="BankHeist"
 ALGORITHM="der"
 VARIANT="plain_google_noisy_life_loss"
-seeds=(1 2 3 4 5)
+read -r -a seeds <<< "${SEEDS:-1 2 3 4 5}"
 
 if [[ -z "$PYTHON" ]]; then
   if [[ -x ".venv/bin/python" ]]; then
