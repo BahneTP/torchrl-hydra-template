@@ -46,9 +46,11 @@ from torchrl.modules import (
 from torchrl.objectives import DistributionalDQNLoss, DQNLoss, HardUpdate
 
 from src.algorithms.dqn.dqn import DQNAlgorithm
-from src.components.transfer_learning import AttentiveProbe
+from src.components.transfer_learning import AttentionWeightedPoolingProbe, AttentiveProbe
 from src.components.transfer_learning import DINOv2ViTS14Encoder
+from src.components.transfer_learning import LeWMViTTiny14Encoder
 from src.components.transfer_learning import ResNet18Encoder, ResNet18Variant
+from src.components.transfer_learning import SingleQueryAttentiveProbe
 from src.components.transfer_learning import configure_encoder_transfer
 from src.components.exploration import FixedEpsilonGreedy
 
@@ -231,10 +233,13 @@ class _TransferRainbowQNet(nn.Module):
         weights: str | None,
         variant: ResNet18Variant,
         dinov2_output_block: int,
+        lewm_output_block: int,
         transfer_layer_mix: bool,
         resnet18_mix_layers: Sequence[int] | None,
         dinov2_mix_blocks: Sequence[int] | None,
+        lewm_mix_blocks: Sequence[int] | None,
         transfer_mode: str,
+        attentive_probe_type: str,
         freeze_encoder_bn: bool,
         lora_rank: int,
         lora_alpha: float,
@@ -266,6 +271,16 @@ class _TransferRainbowQNet(nn.Module):
             )
             self._mix_metric_prefix = "transfer_layer_mix/dinov2_block"
             self._mix_indices = tuple(int(block) for block in (dinov2_mix_blocks or range(1, 13)))
+        elif encoder_type == "lewm_vit_tiny14":
+            self.encoder = LeWMViTTiny14Encoder(
+                input_channels=obs_shape[0],
+                weights=weights,
+                output_block=lewm_output_block,
+                output_mode="layer_mix" if transfer_layer_mix else "single_block",
+                mix_blocks=lewm_mix_blocks,
+            )
+            self._mix_metric_prefix = "transfer_layer_mix/lewm_block"
+            self._mix_indices = tuple(int(block) for block in (lewm_mix_blocks or range(1, 13)))
         else:
             raise ValueError(f"Unsupported transfer encoder_type={encoder_type!r}")
         configure_encoder_transfer(
@@ -288,6 +303,7 @@ class _TransferRainbowQNet(nn.Module):
                         spatial_latent=item,
                         hidden_dim=hidden_dim,
                         transfer_mode=transfer_mode,
+                        attentive_probe_type=attentive_probe_type,
                         layer_class=layer_class,
                         layer_kwargs=kwargs,
                     )
@@ -300,6 +316,7 @@ class _TransferRainbowQNet(nn.Module):
                 spatial_latent=latent,
                 hidden_dim=hidden_dim,
                 transfer_mode=transfer_mode,
+                attentive_probe_type=attentive_probe_type,
                 layer_class=layer_class,
                 layer_kwargs=kwargs,
             )
@@ -316,15 +333,23 @@ class _TransferRainbowQNet(nn.Module):
         spatial_latent: torch.Tensor,
         hidden_dim: int,
         transfer_mode: str,
+        attentive_probe_type: str,
         layer_class: type[nn.Module],
         layer_kwargs: dict,
     ) -> nn.Module:
         if transfer_mode == "attentive_probe":
-            return AttentiveProbe(
-                in_channels=int(spatial_latent.shape[1]),
-                out_features=hidden_dim,
-                num_tokens=int(spatial_latent.flatten(2).shape[-1]),
-            )
+            probe_kwargs = {
+                "in_channels": int(spatial_latent.shape[1]),
+                "out_features": hidden_dim,
+                "num_tokens": int(spatial_latent.flatten(2).shape[-1]),
+            }
+            if attentive_probe_type == "self_attention":
+                return AttentiveProbe(**probe_kwargs)
+            if attentive_probe_type == "single_query":
+                return SingleQueryAttentiveProbe(**probe_kwargs)
+            if attentive_probe_type == "attention_weighted_pooling":
+                return AttentionWeightedPoolingProbe(**probe_kwargs)
+            raise ValueError(f"Unsupported attentive_probe_type={attentive_probe_type!r}")
         in_features = int(spatial_latent.flatten(1).shape[-1])
         return nn.Sequential(
             nn.Flatten(),
@@ -456,15 +481,18 @@ class RainbowAlgorithm(DQNAlgorithm):
         num_updates: int = 4,
         hard_update_freq: int = 8_000,
         replay_capacity: int = 1_000_000,
-        encoder_type: Literal["dqn", "data_efficient", "resnet18", "dinov2_vits14"] = "dqn",
+        encoder_type: Literal["dqn", "data_efficient", "resnet18", "dinov2_vits14", "lewm_vit_tiny14"] = "dqn",
         hidden_dim: int = 512,
         resnet18_weights: str | None = None,
         resnet18_variant: ResNet18Variant = "resnet_layer3_reduced",
         dinov2_weights: str | None = "models/dinov2_vits14_pretrain.pth",
         dinov2_output_block: int = 3,
+        lewm_weights: str | None = "models/lewm_pusht_weights.pt",
+        lewm_output_block: int = 7,
         transfer_layer_mix: bool = False,
         resnet18_mix_layers: Sequence[int] | None = None,
         dinov2_mix_blocks: Sequence[int] | None = None,
+        lewm_mix_blocks: Sequence[int] | None = None,
         transfer_mode: Literal[
             "none",
             "full_finetune",
@@ -474,6 +502,12 @@ class RainbowAlgorithm(DQNAlgorithm):
         ] = "none",
         encoder_lr: float | None = None,
         adapter_lr: float | None = None,
+        probe_lr: float | None = None,
+        attentive_probe_type: Literal[
+            "self_attention",
+            "single_query",
+            "attention_weighted_pooling",
+        ] = "self_attention",
         encoder_lr_scale: float | None = None,
         freeze_encoder_bn: bool = False,
         lora_rank: int = 1,
@@ -534,12 +568,17 @@ class RainbowAlgorithm(DQNAlgorithm):
         self.resnet18_variant = resnet18_variant
         self.dinov2_weights = dinov2_weights
         self.dinov2_output_block = dinov2_output_block
+        self.lewm_weights = lewm_weights
+        self.lewm_output_block = lewm_output_block
         self.transfer_layer_mix = transfer_layer_mix
         self.resnet18_mix_layers = resnet18_mix_layers
         self.dinov2_mix_blocks = dinov2_mix_blocks
+        self.lewm_mix_blocks = lewm_mix_blocks
         self.transfer_mode = transfer_mode
         self.encoder_lr = encoder_lr
         self.adapter_lr = adapter_lr
+        self.probe_lr = probe_lr
+        self.attentive_probe_type = attentive_probe_type
         self.encoder_lr_scale = encoder_lr_scale
         self.freeze_encoder_bn = freeze_encoder_bn
         self.lora_rank = lora_rank
@@ -593,11 +632,13 @@ class RainbowAlgorithm(DQNAlgorithm):
         )
         out_features = (self.num_atoms, num_actions) if self.distributional else num_actions
         out_features_value = (self.num_atoms, 1) if self.distributional else 1
-        if self.encoder_type in {"resnet18", "dinov2_vits14"}:
+        if self.encoder_type in {"resnet18", "dinov2_vits14", "lewm_vit_tiny14"}:
             weights = (
                 self.resnet18_weights
                 if self.encoder_type == "resnet18"
                 else self.dinov2_weights
+                if self.encoder_type == "dinov2_vits14"
+                else self.lewm_weights
             )
             q_net = _TransferRainbowQNet(
                 obs_shape=obs_shape,
@@ -612,10 +653,13 @@ class RainbowAlgorithm(DQNAlgorithm):
                 weights=weights,
                 variant=self.resnet18_variant,
                 dinov2_output_block=self.dinov2_output_block,
+                lewm_output_block=self.lewm_output_block,
                 transfer_layer_mix=self.transfer_layer_mix,
                 resnet18_mix_layers=self.resnet18_mix_layers,
                 dinov2_mix_blocks=self.dinov2_mix_blocks,
+                lewm_mix_blocks=self.lewm_mix_blocks,
                 transfer_mode=self.transfer_mode,
+                attentive_probe_type=self.attentive_probe_type,
                 freeze_encoder_bn=self.freeze_encoder_bn,
                 lora_rank=self.lora_rank,
                 lora_alpha=self.lora_alpha,
@@ -747,7 +791,7 @@ class RainbowAlgorithm(DQNAlgorithm):
         self.optimizer = self._make_optimizer()
 
     def _make_optimizer(self) -> torch.optim.Optimizer:
-        if self.encoder_type not in {"resnet18", "dinov2_vits14"}:
+        if self.encoder_type not in {"resnet18", "dinov2_vits14", "lewm_vit_tiny14"}:
             return torch.optim.Adam(
                 self.q_actor.parameters(),
                 lr=self.lr,
@@ -757,12 +801,17 @@ class RainbowAlgorithm(DQNAlgorithm):
 
         encoder_params = []
         adapter_params = []
+        probe_params = []
         head_params = []
         for name, parameter in self.q_actor.named_parameters():
             if not parameter.requires_grad:
                 continue
             if ".encoder.input_adapter." in name or ".encoder.reducer." in name:
                 adapter_params.append(parameter)
+            elif self.probe_lr is not None and (
+                ".projection." in name or name.startswith("projection.")
+            ):
+                probe_params.append(parameter)
             elif ".encoder." in name:
                 encoder_params.append(parameter)
             else:
@@ -783,6 +832,8 @@ class RainbowAlgorithm(DQNAlgorithm):
                     "lr": self.lr if self.adapter_lr is None else self.adapter_lr,
                 }
             )
+        if probe_params:
+            groups.append({"params": probe_params, "lr": self.probe_lr})
         if head_params:
             groups.append({"params": head_params, "lr": self.lr})
         return torch.optim.Adam(

@@ -8,12 +8,16 @@ PYTHON="${PYTHON:-}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 RUN_ROOT="${RUN_ROOT:-}"
 if [[ -z "$RUN_ROOT" ]]; then
-  latest_run_root="$(find logs/lora/der_resnet18_layer2_lora_rank_alpha_sweep_jamesbond_* -maxdepth 0 -type d 2>/dev/null | sort | tail -n 1 || true)"
-  RUN_ROOT="${latest_run_root:-logs/lora/der_resnet18_layer2_lora_rank_alpha_sweep_jamesbond_${STAMP}}"
+  latest_run_root="$(find logs/lora/der_dinov2_blocks7_12_lora_r4_a8_lr_1e_2_jamesbond_* -maxdepth 0 -type d 2>/dev/null | sort | tail -n 1 || true)"
+  RUN_ROOT="${latest_run_root:-logs/lora/der_dinov2_blocks7_12_lora_r4_a8_lr_1e_2_jamesbond_${STAMP}}"
 fi
 RESULTS_CSV="$RUN_ROOT/results.csv"
 SUMMARY_CSV="$RUN_ROOT/summary.csv"
 ALGORITHM="der"
+LORA_RANK=4
+LORA_ALPHA=8
+LR="1e-2"
+BLOCKS="${BLOCKS:-7 12}"
 
 if [[ -z "$PYTHON" ]]; then
   if [[ -x ".venv/bin/python" ]]; then
@@ -23,19 +27,17 @@ if [[ -z "$PYTHON" ]]; then
   fi
 fi
 
-combos=("1 2" "2 4" "4 8" "8 16" "16 32")
 games=(Jamesbond)
 seeds=(1 2 3 4 5)
 
 "$PYTHON" scripts/lib/results.py init --results "$RESULTS_CSV" --summary "$SUMMARY_CSV"
 
-for combo in "${combos[@]}"; do
-  read -r rank alpha <<<"$combo"
-  variant="resnet18_lora_layer2_r${rank}_a${alpha}"
+for block in $BLOCKS; do
+  variant="dinov2_lora_block${block}_r${LORA_RANK}_a${LORA_ALPHA}_lr_1e_2"
   for game in "${games[@]}"; do
     for seed in "${seeds[@]}"; do
       run_name="${ALGORITHM}_${variant}_${game}_seed_${seed}"
-      run_dir="$RUN_ROOT/r${rank}_a${alpha}/${game}/seed_${seed}"
+      run_dir="$RUN_ROOT/block_${block}/${game}/seed_${seed}"
       log_file="$run_dir/train_stdout.log"
       mkdir -p "$run_dir"
 
@@ -44,16 +46,16 @@ for combo in "${combos[@]}"; do
         continue
       fi
 
-      echo "Starting DER ResNet18 LoRA layer2 rank=${rank} alpha=${alpha} ${game} seed ${seed} on GPU ${GPU}"
+      echo "Starting DER DINOv2 LoRA block${block} rank=${LORA_RANK} alpha=${LORA_ALPHA} lr=${LR} ${game} seed ${seed} on GPU ${GPU}"
       set +e
       CUDA_VISIBLE_DEVICES="$GPU" "$PYTHON" src/train.py \
-        experiment=der/resnet18_lora_atari100k \
+        experiment=der/dinov2_lora_atari100k \
         environment.task="$game" \
-        algorithm.resnet18_variant=resnet_layer2 \
-        algorithm.encoder_lr=1e-7 \
-        algorithm.adapter_lr=1e-7 \
-        algorithm.lora_rank="$rank" \
-        algorithm.lora_alpha="$alpha" \
+        algorithm.dinov2_output_block="$block" \
+        algorithm.encoder_lr="$LR" \
+        algorithm.adapter_lr="$LR" \
+        algorithm.lora_rank="$LORA_RANK" \
+        algorithm.lora_alpha="$LORA_ALPHA" \
         trainer.seed="$seed" \
         trainer.devices=[0] \
         "run_name=$run_name" \
@@ -68,7 +70,7 @@ for combo in "${combos[@]}"; do
       "$PYTHON" scripts/lib/results.py summarize --results "$RESULTS_CSV" --summary "$SUMMARY_CSV"
 
       if [[ "$exit_code" -ne 0 ]]; then
-        echo "Run failed: rank ${rank} alpha ${alpha} ${game} seed ${seed} (exit_code=${exit_code}). See ${log_file}"
+        echo "Run failed: block ${block} ${game} seed ${seed} (exit_code=${exit_code}). See ${log_file}"
         exit "$exit_code"
       fi
     done

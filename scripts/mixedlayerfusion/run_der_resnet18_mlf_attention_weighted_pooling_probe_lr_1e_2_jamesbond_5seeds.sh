@@ -8,12 +8,14 @@ PYTHON="${PYTHON:-}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 RUN_ROOT="${RUN_ROOT:-}"
 if [[ -z "$RUN_ROOT" ]]; then
-  latest_run_root="$(find logs/lora/der_resnet18_layer2_lora_rank_alpha_sweep_jamesbond_* -maxdepth 0 -type d 2>/dev/null | sort | tail -n 1 || true)"
-  RUN_ROOT="${latest_run_root:-logs/lora/der_resnet18_layer2_lora_rank_alpha_sweep_jamesbond_${STAMP}}"
+  latest_run_root="$(find logs/mixedlayerfusion/der_resnet18_mlf_attention_weighted_pooling_probe_lr_1e_2_* -maxdepth 0 -type d 2>/dev/null | sort | tail -n 1 || true)"
+  RUN_ROOT="${latest_run_root:-logs/mixedlayerfusion/der_resnet18_mlf_attention_weighted_pooling_probe_lr_1e_2_${STAMP}}"
 fi
 RESULTS_CSV="$RUN_ROOT/results.csv"
 SUMMARY_CSV="$RUN_ROOT/summary.csv"
 ALGORITHM="der"
+PROBE_TYPE="attention_weighted_pooling"
+PROBE_LR="1e-2"
 
 if [[ -z "$PYTHON" ]]; then
   if [[ -x ".venv/bin/python" ]]; then
@@ -23,19 +25,24 @@ if [[ -z "$PYTHON" ]]; then
   fi
 fi
 
-combos=("1 2" "2 4" "4 8" "8 16" "16 32")
+cases=(
+  "all|[1,2,3,4]"
+  "layer1_4|[1,4]"
+  "layer2_3|[2,3]"
+)
 games=(Jamesbond)
 seeds=(1 2 3 4 5)
 
 "$PYTHON" scripts/lib/results.py init --results "$RESULTS_CSV" --summary "$SUMMARY_CSV"
 
-for combo in "${combos[@]}"; do
-  read -r rank alpha <<<"$combo"
-  variant="resnet18_lora_layer2_r${rank}_a${alpha}"
+for case_spec in "${cases[@]}"; do
+  case_name="${case_spec%%|*}"
+  layers="${case_spec#*|}"
+  variant="resnet18_mlf_${PROBE_TYPE}_${case_name}_probe_lr_1e_2"
   for game in "${games[@]}"; do
     for seed in "${seeds[@]}"; do
       run_name="${ALGORITHM}_${variant}_${game}_seed_${seed}"
-      run_dir="$RUN_ROOT/r${rank}_a${alpha}/${game}/seed_${seed}"
+      run_dir="$RUN_ROOT/${case_name}/${game}/seed_${seed}"
       log_file="$run_dir/train_stdout.log"
       mkdir -p "$run_dir"
 
@@ -44,16 +51,15 @@ for combo in "${combos[@]}"; do
         continue
       fi
 
-      echo "Starting DER ResNet18 LoRA layer2 rank=${rank} alpha=${alpha} ${game} seed ${seed} on GPU ${GPU}"
+      echo "Starting DER ResNet18 MLF ${PROBE_TYPE} ${case_name} probe_lr=${PROBE_LR} ${game} seed ${seed} on GPU ${GPU}"
       set +e
       CUDA_VISIBLE_DEVICES="$GPU" "$PYTHON" src/train.py \
-        experiment=der/resnet18_lora_atari100k \
+        experiment=der/resnet18_attentive_atari100k \
         environment.task="$game" \
-        algorithm.resnet18_variant=resnet_layer2 \
-        algorithm.encoder_lr=1e-7 \
-        algorithm.adapter_lr=1e-7 \
-        algorithm.lora_rank="$rank" \
-        algorithm.lora_alpha="$alpha" \
+        algorithm.transfer_layer_mix=true \
+        algorithm.resnet18_mix_layers="$layers" \
+        algorithm.attentive_probe_type="$PROBE_TYPE" \
+        algorithm.probe_lr="$PROBE_LR" \
         trainer.seed="$seed" \
         trainer.devices=[0] \
         "run_name=$run_name" \
@@ -68,7 +74,7 @@ for combo in "${combos[@]}"; do
       "$PYTHON" scripts/lib/results.py summarize --results "$RESULTS_CSV" --summary "$SUMMARY_CSV"
 
       if [[ "$exit_code" -ne 0 ]]; then
-        echo "Run failed: rank ${rank} alpha ${alpha} ${game} seed ${seed} (exit_code=${exit_code}). See ${log_file}"
+        echo "Run failed: ${case_name} ${game} seed ${seed} (exit_code=${exit_code}). See ${log_file}"
         exit "$exit_code"
       fi
     done

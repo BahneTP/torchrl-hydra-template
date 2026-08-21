@@ -27,6 +27,8 @@ hard_update_freq: 8_000   # target net <- online every N gradient steps
 replay_capacity: 1_000_000
 encoder_type: dqn
 hidden_dim: 512
+probe_lr: null
+attentive_probe_type: self_attention
 
 # Dueling network (Wang et al. 2016)
 dueling: true

@@ -1,0 +1,16 @@
+# @package _global_
+# DER with a LeWM PushT ViT-Tiny/14 encoder and LoRA adapters from block 7 features.
+defaults:
+  - /experiment/der/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: lewm_vit_tiny14
+  lewm_weights: models/lewm_pusht_weights.pt
+  lewm_output_block: 7
+  transfer_mode: lora
+  encoder_lr: 1.0e-4
+  adapter_lr: 1.0e-4
+  lora_rank: 1
+  lora_alpha: 2.0
+  lora_dropout: 0.0

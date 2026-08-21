@@ -109,6 +109,91 @@ class AttentiveProbe(nn.Module):
         return self.value(tokens.reshape(tokens.shape[0], -1))
 
 
+class SingleQueryAttentiveProbe(nn.Module):
+    """Cross-attention probe with one learned query token."""
+
+    def __init__(
+        self,
+        *,
+        in_channels: int,
+        out_features: int,
+        initializer: InitializerName = "xavier_uniform",
+        num_tokens: int = 36,
+        num_heads: int = 4,
+    ) -> None:
+        super().__init__()
+        if in_channels % num_heads != 0:
+            raise ValueError("SingleQueryAttentiveProbe in_channels must be divisible by num_heads.")
+        self.in_channels = in_channels
+        self.num_tokens = num_tokens
+        self.position_embedding = nn.Parameter(torch.zeros(1, num_tokens, in_channels))
+        self.query = nn.Parameter(torch.zeros(1, 1, in_channels))
+        self.token_norm = nn.LayerNorm(in_channels)
+        self.query_norm = nn.LayerNorm(in_channels)
+        self.attention = nn.MultiheadAttention(
+            embed_dim=in_channels,
+            num_heads=num_heads,
+            batch_first=True,
+        )
+        self.value = nn.Linear(in_channels, out_features)
+        nn.init.normal_(self.position_embedding, std=0.02)
+        nn.init.normal_(self.query, std=0.02)
+        apply_initializer(self.value, initializer)
+
+    def forward(self, spatial_latent: torch.Tensor) -> torch.Tensor:
+        tokens = spatial_latent.flatten(2).transpose(1, 2)
+        if tokens.shape[1] != self.num_tokens or tokens.shape[2] != self.in_channels:
+            raise ValueError(
+                "SingleQueryAttentiveProbe expects spatial features with "
+                f"{self.in_channels} channels and {self.num_tokens} tokens, got "
+                f"{tokens.shape[2]} channels and {tokens.shape[1]} tokens."
+            )
+        tokens = tokens + self.position_embedding
+        query = self.query.expand(tokens.shape[0], -1, -1)
+        pooled, _ = self.attention(
+            self.query_norm(query),
+            self.token_norm(tokens),
+            self.token_norm(tokens),
+            need_weights=False,
+        )
+        return self.value(pooled.squeeze(1))
+
+
+class AttentionWeightedPoolingProbe(nn.Module):
+    """Attention-weighted spatial pooling probe."""
+
+    def __init__(
+        self,
+        *,
+        in_channels: int,
+        out_features: int,
+        initializer: InitializerName = "xavier_uniform",
+        num_tokens: int = 36,
+    ) -> None:
+        super().__init__()
+        self.in_channels = in_channels
+        self.num_tokens = num_tokens
+        self.position_embedding = nn.Parameter(torch.zeros(1, num_tokens, in_channels))
+        self.score = nn.Linear(in_channels, 1)
+        self.value = nn.Linear(in_channels, out_features)
+        nn.init.normal_(self.position_embedding, std=0.02)
+        apply_initializer(self.score, initializer)
+        apply_initializer(self.value, initializer)
+
+    def forward(self, spatial_latent: torch.Tensor) -> torch.Tensor:
+        tokens = spatial_latent.flatten(2).transpose(1, 2)
+        if tokens.shape[1] != self.num_tokens or tokens.shape[2] != self.in_channels:
+            raise ValueError(
+                "AttentionWeightedPoolingProbe expects spatial features with "
+                f"{self.in_channels} channels and {self.num_tokens} tokens, got "
+                f"{tokens.shape[2]} channels and {tokens.shape[1]} tokens."
+            )
+        tokens = tokens + self.position_embedding
+        weights = self.score(tokens).softmax(dim=1)
+        pooled = (tokens * weights).sum(dim=1)
+        return self.value(pooled)
+
+
 class LoRALinear(nn.Module):
     """Low-rank adapter wrapper for a frozen linear layer."""
 
@@ -241,6 +326,214 @@ class DINOv2Block(nn.Module):
         x = x + self.ls1(self.attn(self.norm1(x)))
         x = x + self.ls2(self.mlp(self.norm2(x)))
         return x
+
+
+class LeWMPatchEmbeddings(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.projection = nn.Conv2d(3, 192, kernel_size=14, stride=14)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.projection(x).flatten(2).transpose(1, 2)
+
+
+class LeWMEmbeddings(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, 192))
+        self.position_embeddings = nn.Parameter(torch.zeros(1, 257, 192))
+        self.patch_embeddings = LeWMPatchEmbeddings()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        height, width = x.shape[-2:]
+        x = self.patch_embeddings(x)
+        cls_token = self.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat([cls_token, x], dim=1)
+        x = x + self._position_embedding(height, width).to(dtype=x.dtype, device=x.device)
+        return x
+
+    def _position_embedding(self, height: int, width: int) -> torch.Tensor:
+        patch_h = height // 14
+        patch_w = width // 14
+        cls_pos = self.position_embeddings[:, :1]
+        patch_pos = self.position_embeddings[:, 1:]
+        source_size = int(math.sqrt(patch_pos.shape[1]))
+        patch_pos = patch_pos.reshape(1, source_size, source_size, 192).permute(0, 3, 1, 2)
+        patch_pos = F.interpolate(
+            patch_pos,
+            size=(patch_h, patch_w),
+            mode="bicubic",
+            align_corners=False,
+        )
+        patch_pos = patch_pos.permute(0, 2, 3, 1).reshape(1, patch_h * patch_w, 192)
+        return torch.cat([cls_pos, patch_pos], dim=1)
+
+
+class LeWMSelfAttention(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.query = nn.Linear(192, 192)
+        self.key = nn.Linear(192, 192)
+        self.value = nn.Linear(192, 192)
+        self.num_heads = 3
+        self.head_dim = 64
+        self.scale = self.head_dim**-0.5
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch, tokens, _ = x.shape
+        query = self.query(x).reshape(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        key = self.key(x).reshape(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        value = self.value(x).reshape(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        attention = (query @ key.transpose(-2, -1)) * self.scale
+        attention = attention.softmax(dim=-1)
+        return (attention @ value).transpose(1, 2).reshape(batch, tokens, 192)
+
+
+class LeWMAttentionOutput(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dense = nn.Linear(192, 192)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dense(x)
+
+
+class LeWMAttention(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.attention = LeWMSelfAttention()
+        self.output = LeWMAttentionOutput()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.output(self.attention(x))
+
+
+class LeWMIntermediate(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dense = nn.Linear(192, 768)
+        self.act = nn.GELU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.act(self.dense(x))
+
+
+class LeWMOutput(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dense = nn.Linear(768, 192)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dense(x)
+
+
+class LeWMBlock(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.attention = LeWMAttention()
+        self.intermediate = LeWMIntermediate()
+        self.output = LeWMOutput()
+        self.layernorm_before = nn.LayerNorm(192, eps=1e-12)
+        self.layernorm_after = nn.LayerNorm(192, eps=1e-12)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.attention(self.layernorm_before(x))
+        x = x + self.output(self.intermediate(self.layernorm_after(x)))
+        return x
+
+
+class LeWMEncoderLayers(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.layer = nn.ModuleList([LeWMBlock() for _ in range(12)])
+
+
+class LeWMViTTiny14Encoder(nn.Module):
+    """LeWM PushT ViT-Tiny/14 encoder adapted to Atari frame stacks."""
+
+    def __init__(
+        self,
+        *,
+        input_channels: int = 4,
+        weights: str | None = "models/lewm_pusht_weights.pt",
+        output_block: int = 7,
+        output_mode: str = "single_block",
+        mix_blocks: Sequence[int] | None = None,
+    ) -> None:
+        super().__init__()
+        if output_block < 1 or output_block > 12:
+            raise ValueError("LeWM output_block must be in [1, 12].")
+        if output_mode not in {"single_block", "layer_mix"}:
+            raise ValueError("LeWM output_mode must be 'single_block' or 'layer_mix'.")
+        self.output_block = output_block
+        self.output_mode = output_mode
+        self.mix_blocks = _validate_indices(mix_blocks or range(1, 13), minimum=1, maximum=12)
+        self.input_adapter = nn.Conv2d(input_channels, 3, kernel_size=1)
+        _init_input_adapter(self.input_adapter, input_channels)
+        self.register_buffer(
+            "input_mean",
+            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1),
+        )
+        self.register_buffer(
+            "input_std",
+            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1),
+        )
+        self.embeddings = LeWMEmbeddings()
+        self.encoder = LeWMEncoderLayers()
+        self.layernorm = nn.LayerNorm(192, eps=1e-12)
+        self.reducer = None
+        self.output_channels = 192
+        self._load_weights(weights)
+
+    def _load_weights(self, weights: str | None) -> None:
+        if weights is None or str(weights).lower() in {"", "none", "false"}:
+            return
+        state = torch.load(Path(weights), map_location="cpu")
+        encoder_state = {
+            key.removeprefix("encoder."): value
+            for key, value in state.items()
+            if key.startswith("encoder.")
+        }
+        incompatible = self.load_state_dict(encoder_state, strict=False)
+        unexpected = set(incompatible.unexpected_keys)
+        missing = set(incompatible.missing_keys)
+        allowed_missing = {
+            "input_adapter.weight",
+            "input_adapter.bias",
+            "input_mean",
+            "input_std",
+            "reducer.weight",
+            "reducer.bias",
+        }
+        if unexpected or missing - allowed_missing:
+            raise RuntimeError(
+                "Unexpected LeWM checkpoint mismatch: "
+                f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        height, width = x.shape[-2:]
+        x = self.input_adapter(x)
+        x = (x - self.input_mean) / self.input_std
+        x = self.embeddings(x)
+        if self.output_mode == "layer_mix":
+            outputs = []
+            mix_blocks = set(self.mix_blocks)
+            for block_index, block in enumerate(self.encoder.layer, start=1):
+                x = block(x)
+                if block_index in mix_blocks:
+                    outputs.append(self._patch_tokens(x, height, width))
+            return outputs
+
+        for block in self.encoder.layer[: self.output_block]:
+            x = block(x)
+        return self._patch_tokens(x, height, width)
+
+    def _patch_tokens(self, x: torch.Tensor, height: int, width: int) -> torch.Tensor:
+        patch_sequence = self.layernorm(x)[:, 1:]
+        patch_h = height // 14
+        patch_w = width // 14
+        return patch_sequence.transpose(1, 2).reshape(x.shape[0], 192, patch_h, patch_w)
 
 
 class DINOv2ViTS14Encoder(nn.Module):
