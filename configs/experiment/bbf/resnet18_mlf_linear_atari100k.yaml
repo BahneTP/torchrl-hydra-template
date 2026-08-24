@@ -1,0 +1,13 @@
+# @package _global_
+# BBF with frozen ImageNet-pretrained ResNet-18 layers 1-4, linearly fused to BBF's spatial latent shape.
+defaults:
+  - /experiment/bbf/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: resnet18
+  resnet18_weights: DEFAULT
+  transfer_mode: linear_probe
+  transfer_layer_mix: true
+  resnet18_mix_layers: [1, 2, 3, 4]
+  freeze_encoder_bn: true

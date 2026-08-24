@@ -1,0 +1,12 @@
+# @package _global_
+# BBF with an ImageNet-pretrained ResNet-18 layer2 encoder, full fine-tuning.
+defaults:
+  - /experiment/bbf/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: resnet18
+  resnet18_weights: DEFAULT
+  transfer_mode: full_finetune
+  transfer_layer_mix: false
+  freeze_encoder_bn: true

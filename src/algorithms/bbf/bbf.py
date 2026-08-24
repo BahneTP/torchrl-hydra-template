@@ -55,7 +55,7 @@ gradient steps, so it stays 40_000 for both RR2 and RR8.
 from __future__ import annotations
 
 import math
-from typing import Callable
+from typing import Callable, Sequence
 
 import torch
 import torch.nn as nn
@@ -89,6 +89,9 @@ class BBFAlgorithm(BaseAlgorithm):
         v_max: float = 10.0,
         # --- Optimisation ----------------------------------------------------
         lr: float = 1e-4,
+        encoder_lr: float | None = None,
+        adapter_lr: float | None = None,
+        probe_lr: float | None = None,
         weight_decay: float = 0.1,
         adam_eps: float = 1.5e-4,
         batch_size: int = 32,
@@ -130,6 +133,17 @@ class BBFAlgorithm(BaseAlgorithm):
         frames_per_batch: int = 1,
         max_frames_per_traj: int = -1,
         renormalize_latent: bool = True,
+        # --- Transfer encoders -----------------------------------------------------
+        encoder_type: str = "impala",
+        resnet18_weights: str | None = None,
+        transfer_mode: str = "none",
+        transfer_layer_mix: bool = False,
+        resnet18_mix_layers: Sequence[int] | None = None,
+        attentive_probe_type: str = "self_attention",
+        freeze_encoder_bn: bool = False,
+        lora_rank: int = 1,
+        lora_alpha: float = 2.0,
+        lora_dropout: float = 0.0,
     ) -> None:
         super().__init__(device)
         self.obs_key = obs_key
@@ -139,6 +153,9 @@ class BBFAlgorithm(BaseAlgorithm):
         self.v_min = v_min
         self.v_max = v_max
         self.lr = lr
+        self.encoder_lr = encoder_lr
+        self.adapter_lr = adapter_lr
+        self.probe_lr = probe_lr
         self.weight_decay = weight_decay
         self.adam_eps = adam_eps
         self.batch_size = batch_size
@@ -173,6 +190,16 @@ class BBFAlgorithm(BaseAlgorithm):
         self.frames_per_batch = frames_per_batch
         self.max_frames_per_traj = max_frames_per_traj
         self.renormalize_latent = renormalize_latent
+        self.encoder_type = encoder_type
+        self.resnet18_weights = resnet18_weights
+        self.transfer_mode = transfer_mode
+        self.transfer_layer_mix = transfer_layer_mix
+        self.resnet18_mix_layers = resnet18_mix_layers
+        self.attentive_probe_type = attentive_probe_type
+        self.freeze_encoder_bn = freeze_encoder_bn
+        self.lora_rank = lora_rank
+        self.lora_alpha = lora_alpha
+        self.lora_dropout = lora_dropout
 
         # window sampled from the buffer: enough to cover the largest n-step
         # horizon *and* the SPR rollout. slice_len = window + 1 frames.
@@ -207,6 +234,16 @@ class BBFAlgorithm(BaseAlgorithm):
                 v_max=self.v_max,
                 dueling=self.dueling,
                 renorm=self.renormalize_latent,
+                encoder_type=self.encoder_type,
+                resnet18_weights=self.resnet18_weights,
+                transfer_mode=self.transfer_mode,
+                transfer_layer_mix=self.transfer_layer_mix,
+                resnet18_mix_layers=self.resnet18_mix_layers,
+                attentive_probe_type=self.attentive_probe_type,
+                freeze_encoder_bn=self.freeze_encoder_bn,
+                lora_rank=self.lora_rank,
+                lora_alpha=self.lora_alpha,
+                lora_dropout=self.lora_dropout,
             )
 
         self._make_network = make_network
@@ -265,14 +302,49 @@ class BBFAlgorithm(BaseAlgorithm):
         return TensorDictReplayBuffer(storage=storage, sampler=sampler, batch_size=None)
 
     def _make_optimizer(self) -> torch.optim.AdamW:
-        decay, no_decay = [], []
-        for p in self.network.parameters():
-            (decay if p.ndim > 1 else no_decay).append(p)
+        groups = []
+        default_decay, default_no_decay = [], []
+        encoder_decay, encoder_no_decay = [], []
+        adapter_decay, adapter_no_decay = [], []
+        probe_decay, probe_no_decay = [], []
+
+        def add_split(parameter: nn.Parameter, decay_group: list[nn.Parameter], no_decay_group: list[nn.Parameter]) -> None:
+            (decay_group if parameter.ndim > 1 else no_decay_group).append(parameter)
+
+        for name, p in self.network.named_parameters():
+            if not p.requires_grad:
+                continue
+            if self.adapter_lr is not None and ".input_adapter." in name:
+                add_split(p, adapter_decay, adapter_no_decay)
+            elif self.probe_lr is not None and (
+                name.startswith("encoder.projectors.")
+                or name == "encoder.mix_logits"
+                or name.startswith("encoder.spatial_probe.")
+            ):
+                add_split(p, probe_decay, probe_no_decay)
+            elif self.encoder_lr is not None and name.startswith("encoder."):
+                add_split(p, encoder_decay, encoder_no_decay)
+            else:
+                add_split(p, default_decay, default_no_decay)
+
+        def add_groups(
+            decay_group: list[nn.Parameter],
+            no_decay_group: list[nn.Parameter],
+            *,
+            lr: float | None = None,
+        ) -> None:
+            base = {"lr": lr} if lr is not None else {}
+            if decay_group:
+                groups.append({**base, "params": decay_group, "weight_decay": self.weight_decay})
+            if no_decay_group:
+                groups.append({**base, "params": no_decay_group, "weight_decay": 0.0})
+
+        add_groups(default_decay, default_no_decay)
+        add_groups(encoder_decay, encoder_no_decay, lr=self.encoder_lr)
+        add_groups(adapter_decay, adapter_no_decay, lr=self.adapter_lr)
+        add_groups(probe_decay, probe_no_decay, lr=self.probe_lr)
         return torch.optim.AdamW(
-            [
-                {"params": decay, "weight_decay": self.weight_decay},
-                {"params": no_decay, "weight_decay": 0.0},
-            ],
+            groups,
             lr=self.lr,
             eps=self.adam_eps,
         )
@@ -342,6 +414,7 @@ class BBFAlgorithm(BaseAlgorithm):
             "train/gamma": self._current_gamma(),
             "train/num_resets": float(self._num_resets),
         }
+        metrics.update(self.network.layer_mix_metrics())
         if self._collected_frames < self.min_replay_history:
             return metrics
 
@@ -535,19 +608,22 @@ class BBFAlgorithm(BaseAlgorithm):
         (``keys_to_copy = ("encoder", "transition_model")``). Knowledge is
         carried across the reset by the replay buffer, the interpolated
         encoder weights and their optimiser moments."""
+        resetable = self.network.resetable_parameter_names()
         for net in (self.network, self.target_network):
             fresh = self._make_network().to(self.device)
             for (name, p), (_, q) in zip(
                 net.named_parameters(), fresh.named_parameters()
             ):
-                if name.startswith(("encoder.", "transition_model.")):
+                if any(name.startswith(prefix) for prefix in resetable):
                     p.mul_(self.shrink_factor).add_(q, alpha=self.perturb_factor)
+                elif name.startswith("encoder."):
+                    continue
                 else:
                     p.copy_(q)
         old_state = self.optimizer.state
         self.optimizer = self._make_optimizer()
         for name, p in self.network.named_parameters():
-            if name.startswith(("encoder.", "transition_model.")) and p in old_state:
+            if any(name.startswith(prefix) for prefix in resetable) and p in old_state:
                 state = old_state[p]
                 # optax's shared step count restarts at 0 in the official
                 # reset, so Adam's bias correction re-warms up here too.

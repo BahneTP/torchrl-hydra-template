@@ -1,0 +1,14 @@
+# @package _global_
+# BBF with frozen ImageNet-pretrained ResNet-18 layers 1-4, linear fusion and spatial self-attention probing.
+defaults:
+  - /experiment/bbf/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: resnet18
+  resnet18_weights: DEFAULT
+  transfer_mode: attentive_probe
+  transfer_layer_mix: true
+  resnet18_mix_layers: [1, 2, 3, 4]
+  attentive_probe_type: self_attention
+  freeze_encoder_bn: true

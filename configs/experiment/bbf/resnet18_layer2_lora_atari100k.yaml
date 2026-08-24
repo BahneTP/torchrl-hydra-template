@@ -1,0 +1,15 @@
+# @package _global_
+# BBF with an ImageNet-pretrained ResNet-18 layer2 encoder and LoRA adapters.
+defaults:
+  - /experiment/bbf/atari100k
+  - _self_
+
+algorithm:
+  encoder_type: resnet18
+  resnet18_weights: DEFAULT
+  transfer_mode: lora
+  transfer_layer_mix: false
+  lora_rank: 1
+  lora_alpha: 2.0
+  lora_dropout: 0.0
+  freeze_encoder_bn: true
