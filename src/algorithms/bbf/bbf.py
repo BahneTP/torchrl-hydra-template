@@ -138,12 +138,14 @@ class BBFAlgorithm(BaseAlgorithm):
         resnet18_weights: str | None = None,
         transfer_mode: str = "none",
         transfer_layer_mix: bool = False,
+        linear_probe_conv: bool = False,
         resnet18_mix_layers: Sequence[int] | None = None,
         attentive_probe_type: str = "self_attention",
         freeze_encoder_bn: bool = False,
         lora_rank: int = 1,
         lora_alpha: float = 2.0,
         lora_dropout: float = 0.0,
+        reset_transfer_encoder: bool = True,
     ) -> None:
         super().__init__(device)
         self.obs_key = obs_key
@@ -194,12 +196,14 @@ class BBFAlgorithm(BaseAlgorithm):
         self.resnet18_weights = resnet18_weights
         self.transfer_mode = transfer_mode
         self.transfer_layer_mix = transfer_layer_mix
+        self.linear_probe_conv = linear_probe_conv
         self.resnet18_mix_layers = resnet18_mix_layers
         self.attentive_probe_type = attentive_probe_type
         self.freeze_encoder_bn = freeze_encoder_bn
         self.lora_rank = lora_rank
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout
+        self.reset_transfer_encoder = reset_transfer_encoder
 
         # window sampled from the buffer: enough to cover the largest n-step
         # horizon *and* the SPR rollout. slice_len = window + 1 frames.
@@ -238,12 +242,14 @@ class BBFAlgorithm(BaseAlgorithm):
                 resnet18_weights=self.resnet18_weights,
                 transfer_mode=self.transfer_mode,
                 transfer_layer_mix=self.transfer_layer_mix,
+                linear_probe_conv=self.linear_probe_conv,
                 resnet18_mix_layers=self.resnet18_mix_layers,
                 attentive_probe_type=self.attentive_probe_type,
                 freeze_encoder_bn=self.freeze_encoder_bn,
                 lora_rank=self.lora_rank,
                 lora_alpha=self.lora_alpha,
                 lora_dropout=self.lora_dropout,
+                reset_transfer_encoder=self.reset_transfer_encoder,
             )
 
         self._make_network = make_network
@@ -320,6 +326,7 @@ class BBFAlgorithm(BaseAlgorithm):
                 name.startswith("encoder.projectors.")
                 or name == "encoder.mix_logits"
                 or name.startswith("encoder.spatial_probe.")
+                or (self.transfer_mode == "linear_probe" and name.startswith("projection."))
             ):
                 add_split(p, probe_decay, probe_no_decay)
             elif self.encoder_lr is not None and name.startswith("encoder."):

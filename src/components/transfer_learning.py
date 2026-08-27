@@ -737,11 +737,19 @@ def apply_lora_adapters(
     alpha: float,
     dropout: float,
     initializer: InitializerName = "xavier_uniform",
+    excluded_child_names: frozenset[str] = frozenset(),
 ) -> int:
-    """Recursively replace Linear/Conv2d children with frozen LoRA wrappers."""
+    """Recursively replace Linear/Conv2d children with frozen LoRA wrappers.
+
+    ``excluded_child_names`` provides an opt-in escape hatch for architectural
+    adapters which should remain ordinary, fully trainable layers.  The empty
+    default preserves the legacy transfer-learning behaviour.
+    """
 
     replacements = 0
     for name, child in list(module.named_children()):
+        if name in excluded_child_names:
+            continue
         if isinstance(child, (LoRALinear, LoRAConv2d)):
             continue
         if isinstance(child, nn.Linear):
@@ -765,6 +773,7 @@ def apply_lora_adapters(
                 alpha=alpha,
                 dropout=dropout,
                 initializer=initializer,
+                excluded_child_names=excluded_child_names,
             )
     return replacements
 
@@ -777,6 +786,7 @@ def configure_encoder_transfer(
     lora_rank: int = 1,
     lora_alpha: float = 2.0,
     lora_dropout: float = 0.0,
+    train_input_adapter_without_lora: bool = False,
 ) -> None:
     if transfer_mode not in {"none", "full_finetune", "linear_probe", "attentive_probe", "lora"}:
         raise ValueError(f"Unsupported transfer_mode={transfer_mode!r}")
@@ -786,11 +796,19 @@ def configure_encoder_transfer(
             rank=lora_rank,
             alpha=lora_alpha,
             dropout=lora_dropout,
+            excluded_child_names=(
+                frozenset({"input_adapter"})
+                if train_input_adapter_without_lora
+                else frozenset()
+            ),
         )
         if replacements == 0:
             raise ValueError("LoRA transfer mode found no encoder Linear or Conv2d layers.")
         for name, parameter in encoder.named_parameters():
             parameter.requires_grad = ".lora_" in name or name.startswith("lora_")
+        if train_input_adapter_without_lora:
+            for parameter in encoder.input_adapter.parameters():
+                parameter.requires_grad = True
     if transfer_mode in {"linear_probe", "attentive_probe"}:
         for parameter in encoder.parameters():
             parameter.requires_grad = False

@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - /experiment/bbf/resnet18_layer2_linear_atari100k
+  - _self_
+
+algorithm:
+  linear_probe_conv: true

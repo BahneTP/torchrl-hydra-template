@@ -163,6 +163,17 @@ class SpatialSelfAttentionProbe(nn.Module):
         return tokens.transpose(1, 2).reshape(x.shape[0], self.channels, self.height, self.width)
 
 
+class ResidualConvProbe(nn.Module):
+    def __init__(self, channels: int = 128) -> None:
+        super().__init__()
+        self.projection = nn.Conv2d(channels, channels, kernel_size=1)
+        nn.init.zeros_(self.projection.weight)
+        nn.init.zeros_(self.projection.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.projection(x)
+
+
 class _ResNetLayerProjector(nn.Module):
     def __init__(self, in_channels: int, out_channels: int = 128) -> None:
         super().__init__()
@@ -191,6 +202,7 @@ class BBFResNet18TransferEncoder(nn.Module):
         lora_alpha: float,
         lora_dropout: float,
         transfer_layer_mix: bool,
+        linear_probe_conv: bool,
         mix_layers: Sequence[int] | None,
         attentive_probe_type: str,
     ) -> None:
@@ -213,6 +225,7 @@ class BBFResNet18TransferEncoder(nn.Module):
             lora_rank=lora_rank,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
+            train_input_adapter_without_lora=True,
         )
         if transfer_layer_mix:
             layers = tuple(int(layer) for layer in (mix_layers or range(1, 5)))
@@ -229,9 +242,12 @@ class BBFResNet18TransferEncoder(nn.Module):
             self.mix_layers = (2,)
             self.projectors = None
             self.mix_logits = None
-            self.spatial_probe = (
-                SpatialSelfAttentionProbe() if transfer_mode == "attentive_probe" else nn.Identity()
-            )
+            if transfer_mode == "attentive_probe":
+                self.spatial_probe = SpatialSelfAttentionProbe()
+            elif transfer_mode == "linear_probe" and linear_probe_conv:
+                self.spatial_probe = ResidualConvProbe()
+            else:
+                self.spatial_probe = nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         latent = self.base(x)
@@ -284,12 +300,14 @@ class BBFNetwork(nn.Module):
         resnet18_weights: str | None = None,
         transfer_mode: str = "none",
         transfer_layer_mix: bool = False,
+        linear_probe_conv: bool = False,
         resnet18_mix_layers: Sequence[int] | None = None,
         attentive_probe_type: str = "self_attention",
         freeze_encoder_bn: bool = False,
         lora_rank: int = 1,
         lora_alpha: float = 2.0,
         lora_dropout: float = 0.0,
+        reset_transfer_encoder: bool = True,
     ) -> None:
         super().__init__()
         self.num_actions = num_actions
@@ -297,6 +315,7 @@ class BBFNetwork(nn.Module):
         self.dueling = dueling
         self.renorm = renorm
         self.encoder_type = encoder_type
+        self.reset_transfer_encoder = reset_transfer_encoder
         if encoder_type == "impala":
             self.encoder = ImpalaCNN(
                 obs_shape[0], dims=dims, width_scale=width_scale, num_blocks=blocks_per_stage
@@ -311,6 +330,7 @@ class BBFNetwork(nn.Module):
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
                 transfer_layer_mix=transfer_layer_mix,
+                linear_probe_conv=linear_probe_conv,
                 mix_layers=resnet18_mix_layers,
                 attentive_probe_type=attentive_probe_type,
             )
@@ -338,6 +358,8 @@ class BBFNetwork(nn.Module):
 
     def resetable_parameter_names(self) -> set[str]:
         names = {"transition_model."}
+        if self.encoder_type != "impala" and not self.reset_transfer_encoder:
+            return names
         names.update(
             f"encoder.{name}"
             for name, parameter in self.encoder.named_parameters()

@@ -23,17 +23,19 @@ encoder_type: impala
 resnet18_weights: null
 transfer_mode: none
 transfer_layer_mix: false
+linear_probe_conv: false
 resnet18_mix_layers: [1, 2, 3, 4]
 attentive_probe_type: self_attention
 freeze_encoder_bn: false
 lora_rank: 1
 lora_alpha: 2.0
 lora_dropout: 0.0
+reset_transfer_encoder: true
 
 # Optimisation
 lr: 1.0e-4
 encoder_lr: null
-adapter_lr: null
+adapter_lr: 1.0e-4
 probe_lr: null
 weight_decay: 0.1
 adam_eps: 1.5e-4

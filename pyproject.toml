@@ -30,6 +30,7 @@ dependencies = [
     "pytest-timeout>=2.3.0",
     "dm-control>=1.0.43",
     "pandas>=2.0.0",
+    "matplotlib>=3.8.0",
 ]
 
 [build-system]
