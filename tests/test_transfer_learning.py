@@ -6,6 +6,7 @@ import torch
 from torch import nn
 
 from src.algorithms.bbf.bbf import BBFAlgorithm
+from src.algorithms.bbf.networks import BBFResNet18TransferEncoder
 from src.components.transfer_learning import (
     LoRAConv2d,
     LoRALinear,
@@ -94,3 +95,48 @@ def test_bbf_linear_projection_uses_probe_lr():
     ]
 
     assert all(group["lr"] == 1.0e-6 for group in projection_groups)
+
+
+def test_bbf_attentive_layer_mix_has_one_probe_per_layer():
+    encoder = BBFResNet18TransferEncoder(
+        input_channels=4,
+        weights=None,
+        transfer_mode="attentive_probe",
+        freeze_encoder_bn=True,
+        lora_rank=1,
+        lora_alpha=2.0,
+        lora_dropout=0.0,
+        transfer_layer_mix=True,
+        linear_probe_conv=False,
+        mix_layers=(1, 2, 3, 4),
+        attentive_probe_type="self_attention",
+    )
+
+    assert encoder.spatial_probes is not None
+    assert len(encoder.spatial_probes) == 4
+    assert len({id(probe) for probe in encoder.spatial_probes}) == 4
+    assert encoder(torch.randn(2, 4, 84, 84)).shape == (2, 128, 11, 11)
+
+
+def test_bbf_attentive_layer_mix_probes_use_probe_lr():
+    algorithm = BBFAlgorithm(
+        device=torch.device("cpu"), transfer_mode="attentive_probe", probe_lr=1.0e-6
+    )
+    network = nn.Module()
+    network.encoder = nn.Module()
+    network.encoder.spatial_probes = nn.ModuleList([nn.Linear(8, 8), nn.Linear(8, 8)])
+    network.head = nn.Linear(8, 2)
+    algorithm.network = network
+
+    optimizer = algorithm._make_optimizer()
+    probe_parameter_ids = {
+        id(parameter) for parameter in network.encoder.spatial_probes.parameters()
+    }
+    probe_groups = [
+        group
+        for group in optimizer.param_groups
+        if any(id(parameter) in probe_parameter_ids for parameter in group["params"])
+    ]
+
+    assert probe_groups
+    assert all(group["lr"] == 1.0e-6 for group in probe_groups)

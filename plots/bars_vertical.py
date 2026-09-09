@@ -1,4 +1,4 @@
-"""Shared vertical-boxplot renderer."""
+"""Shared vertical-bar-chart renderer (bar version of ``boxplots_vertical``)."""
 
 from pathlib import Path
 from typing import Sequence
@@ -8,7 +8,7 @@ from matplotlib import font_manager
 import numpy as np
 
 
-def create_vertical_boxplots(
+def create_vertical_bars(
     labels: Sequence[str],
     values: Sequence[Sequence[float]],
     output: str | Path,
@@ -20,12 +20,15 @@ def create_vertical_boxplots(
     human_reward: float | None = None,
     font: str | Path | None = None,
     figure_width: float | None = None,
+    figure_height: float = 3,
+    ymin: float | None = None,
+    bar_color: str = "#FFCC99",
 ) -> Path:
-    """Render labeled seed distributions and their means to a tight PDF."""
+    """Render labeled seed distributions as bars (mean height) to a tight PDF."""
     if not labels or len(labels) != len(values):
         raise ValueError("labels and values must be non-empty and have equal lengths")
     if any(not group for group in values):
-        raise ValueError("every boxplot requires at least one value")
+        raise ValueError("every bar requires at least one value")
     if mean_reward is not None and mean_reward <= 0:
         raise ValueError("mean_reward must be positive")
     use_hns = random_reward is not None or human_reward is not None
@@ -62,54 +65,26 @@ def create_vertical_boxplots(
     positions = np.arange(1, len(labels) + 1)
     means = [float(np.mean(group)) for group in plotted_values]
     fig_width = figure_width or max(6.5, 0.52 * len(labels))
-    fig, ax = plt.subplots(figsize=(fig_width, 3), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(fig_width, figure_height), constrained_layout=True)
 
-    ax.boxplot(
-        plotted_values,
-        positions=positions,
-        widths=0.58,
-        vert=True,
-        patch_artist=True,
-        showfliers=False,
-        medianprops={"color": "#f26b6b", "linewidth": 2.0},
-        whiskerprops={"color": "#000000", "linewidth": 1.5},
-        capprops={"color": "#000000", "linewidth": 1.5},
-        boxprops={
-            "facecolor": "#CCE5FF",
-            "edgecolor": "#000000",
-            "linewidth": 1.5,
-        },
-    )
-
-    rng = np.random.default_rng(7)
-    for position, group in zip(positions, plotted_values):
-        jitter = rng.uniform(-0.10, 0.10, size=len(group))
-        ax.scatter(
-            np.full(len(group), position) + jitter,
-            group,
-            s=38,
-            facecolor="#FFCC99",
-            edgecolor="#000000",
-            linewidth=0.8,
-            alpha=0.85,
-            zorder=3,
-        )
-
-    ax.scatter(
+    ax.bar(
         positions,
         means,
-        s=76,
-        facecolor="white",
-        edgecolor="black",
-        linewidth=1.8,
-        zorder=5,
+        width=0.58,
+        facecolor=bar_color,
+        edgecolor="#000000",
+        linewidth=1.5,
+        zorder=2,
     )
+
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Human-Normalized Score" if use_hns else ylabel)
     ax.set_xticks(positions)
     ax.set_xticklabels(labels, rotation=0, ha="center")
     ax.grid(axis="y", color="#d4d4d8", linestyle=":", linewidth=1.0)
     ax.set_axisbelow(True)
+    if ymin is not None:
+        ax.set_ylim(bottom=ymin)
     if mean_reward is not None:
         if use_hns:
             scale = human_reward - random_reward

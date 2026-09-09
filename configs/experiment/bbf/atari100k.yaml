@@ -16,7 +16,7 @@ environment:
 algorithm:
   # >= trainer.total_frames, so the replay ring never wraps.
   replay_capacity: 200_000
-  no_resets_after: 100_000
+  no_resets_after: 200_000
 
 trainer:
   total_frames: 100_000

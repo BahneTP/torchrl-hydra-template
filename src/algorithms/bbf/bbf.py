@@ -326,6 +326,7 @@ class BBFAlgorithm(BaseAlgorithm):
                 name.startswith("encoder.projectors.")
                 or name == "encoder.mix_logits"
                 or name.startswith("encoder.spatial_probe.")
+                or name.startswith("encoder.spatial_probes.")
                 or (self.transfer_mode == "linear_probe" and name.startswith("projection."))
             ):
                 add_split(p, probe_decay, probe_no_decay)

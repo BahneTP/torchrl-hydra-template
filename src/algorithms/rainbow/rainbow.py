@@ -290,6 +290,7 @@ class _TransferRainbowQNet(nn.Module):
             lora_rank=lora_rank,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
+            train_input_adapter_without_lora=True,
         )
         with torch.no_grad():
             latent = self.encoder(torch.zeros(1, *obs_shape))

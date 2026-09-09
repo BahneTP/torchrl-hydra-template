@@ -235,13 +235,20 @@ class BBFResNet18TransferEncoder(nn.Module):
             )
             self.mix_logits = nn.Parameter(torch.zeros(len(layers)))
             if transfer_mode == "attentive_probe":
-                self.spatial_probe = SpatialSelfAttentionProbe()
+                # Attend to every ResNet stage independently before fusing the
+                # resulting feature maps.  A shared post-fusion probe would no
+                # longer let attention adapt to the individual layer features.
+                self.spatial_probes = nn.ModuleList(
+                    [SpatialSelfAttentionProbe() for _ in layers]
+                )
             else:
-                self.spatial_probe = nn.Identity()
+                self.spatial_probes = None
+            self.spatial_probe = nn.Identity()
         else:
             self.mix_layers = (2,)
             self.projectors = None
             self.mix_logits = None
+            self.spatial_probes = None
             if transfer_mode == "attentive_probe":
                 self.spatial_probe = SpatialSelfAttentionProbe()
             elif transfer_mode == "linear_probe" and linear_probe_conv:
@@ -258,10 +265,16 @@ class BBFResNet18TransferEncoder(nn.Module):
         assert self.mix_logits is not None
         weights = self.mix_logits.softmax(dim=0).to(dtype=latent[0].dtype, device=latent[0].device)
         projected = [
-            projector(item) * weights[index]
-            for index, (projector, item) in enumerate(zip(self.projectors, latent, strict=True))
+            projector(item)
+            for projector, item in zip(self.projectors, latent, strict=True)
         ]
-        return self.spatial_probe(torch.stack(projected, dim=0).sum(dim=0))
+        if self.spatial_probes is not None:
+            projected = [
+                probe(item)
+                for probe, item in zip(self.spatial_probes, projected, strict=True)
+            ]
+        weighted = [item * weights[index] for index, item in enumerate(projected)]
+        return torch.stack(weighted, dim=0).sum(dim=0)
 
     def layer_mix_metrics(self) -> dict[str, float]:
         if self.mix_logits is None:
